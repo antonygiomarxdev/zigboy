@@ -3,7 +3,7 @@ const RomOnly = @import("cartridge/mod.zig").RomOnly;
 
 // ── MMIO Packed Struct ───────────────────────────────────────────────
 
-pub const MMIO = packed struct {
+pub const MMIO = extern struct {
     JOYP: u8,                    // 0xFF00
     SB: u8,                      // 0xFF01
     SC: u8,                      // 0xFF02

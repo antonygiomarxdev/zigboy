@@ -32,6 +32,13 @@ pub fn build(b: *std.Build) void {
     // C module from translated SDL3 headers
     const c_module = translate_c.createModule();
 
+    // Shared emulator module (pure Zig — no SDL3 dependency)
+    const emulator_mod = b.createModule(.{
+        .root_source_file = b.path("src/Emulator.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     // Executable
     const exe = b.addExecutable(.{
         .name = "zigboy",
@@ -42,6 +49,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     exe.root_module.addImport("c", c_module);
+    exe.root_module.addImport("emulator", emulator_mod);
     exe.root_module.linkLibrary(sdl_lib);
     exe.root_module.link_libc = true;
 
@@ -58,20 +66,15 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run the emulator");
     run_step.dependOn(&run_cmd.step);
 
-    // Test target (placeholder — src/main.zig as test root)
-    const test_module = b.createModule(.{
-        .root_source_file = b.path("src/main.zig"),
+    // Test target — headless Blargg cpu_instrs runner (no SDL3 linking needed)
+    const test_mod = b.createModule(.{
+        .root_source_file = b.path("tests/blargg.zig"),
         .target = target,
         .optimize = optimize,
     });
-    test_module.addImport("c", c_module);
-    test_module.linkLibrary(sdl_lib);
-    test_module.link_libc = true;
-    const test_exe = b.addTest(.{
-        .name = "zigboy-test",
-        .root_module = test_module,
-    });
+    test_mod.addImport("emulator", emulator_mod);
+    const test_exe = b.addTest(.{ .root_module = test_mod });
     const test_run = b.addRunArtifact(test_exe);
-    const test_step = b.step("test", "Run tests");
+    const test_step = b.step("test", "Run Blargg cpu_instrs test");
     test_step.dependOn(&test_run.step);
 }

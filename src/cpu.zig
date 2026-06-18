@@ -75,7 +75,7 @@ pub const Registers = packed struct {
 };
 
 comptime {
-    std.debug.assert(@sizeOf(Registers) == 12);
+    std.debug.assert(@sizeOf(Registers) == 16);
 }
 
 // ── Register Enums ───────────────────────────────────────────────────
@@ -600,7 +600,7 @@ pub const Cpu = struct {
             .jr_rel => {
                 const offset = self.bus.read8(regs.pc);
                 regs.pc +%= 1;
-                regs.pc = @addWithOverflow(regs.pc, @as(u16, @bitCast(@as(i16, @as(i8, @bitCast(offset)))))).value;
+                regs.pc = @addWithOverflow(regs.pc, @as(u16, @bitCast(@as(i16, @as(i8, @bitCast(offset))))))[0];
             },
             .call_imm16 => {
                 const lo = self.bus.read8(regs.pc);
@@ -1032,7 +1032,7 @@ pub const Cpu = struct {
             .rra => {
                 const old_carry = regs.getFlags().carry;
                 const new_carry = regs.a & 1;
-                regs.a = (regs.a >> 1) | @as(u8, old_carry << 7);
+                regs.a = (regs.a >> 1) | (@as(u8, old_carry) << 7);
                 var flags = regs.getFlags();
                 flags.zero = 0;
                 flags.subtract = 0;
@@ -1079,6 +1079,7 @@ pub const Cpu = struct {
             },
 
             .cb_prefix => unreachable, // handled in stepInstruction
+            .jp_cond, .jr_cond, .call_cond, .ret_cond => unreachable, // handled in stepInstruction
             .ld_a_c, .ld_c_a, .invalid => {},
         }
     }
@@ -1090,7 +1091,7 @@ pub const Cpu = struct {
                 const offset = self.bus.read8(regs.pc);
                 regs.pc +%= 1;
                 if (condition_met) {
-                    regs.pc = @addWithOverflow(regs.pc, @as(u16, @bitCast(@as(i16, @as(i8, @bitCast(offset)))))).value;
+                    regs.pc = @addWithOverflow(regs.pc, @as(u16, @bitCast(@as(i16, @as(i8, @bitCast(offset))))))[0];
                 }
             },
             .jp_cond => {
@@ -1153,7 +1154,7 @@ pub const Cpu = struct {
                         break :blk (val << 1) | regs.getFlags().carry;
                     },
                     3 => blk: { // RR
-                        break :blk (val >> 1) | (regs.getFlags().carry << 7);
+                        break :blk (val >> 1) | (@as(u8, regs.getFlags().carry) << 7);
                     },
                     4 => blk: { // SLA
                         break :blk val << 1;

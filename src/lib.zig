@@ -1,1 +1,1 @@
-pub const Emulator = @import("Emulator.zig").Emulator;
+pub const Emulator = @import("emulator").Emulator;
