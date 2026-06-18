@@ -69,7 +69,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Build and Distribution
 
-- [ ] **BUILD-01**: `zig build` produces a single statically-linked binary
+- [x] **BUILD-01**: `zig build` produces a single statically-linked binary
 - [ ] **BUILD-02**: `zig build test` runs a headless test suite (CPU + bus + MBC + timer) without SDL3
 - [ ] **BUILD-03**: Release build is `ReleaseFast` with `strip` and `lto=.full`
 - [ ] **BUILD-04**: Canonical ship target is `x86_64-linux-musl` (no glibc dependency)
@@ -165,7 +165,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | BUS-02 | Phase 1 | Pending |
 | BUS-04 | Phase 1 | Pending |
 | CART-01 | Phase 1 | Pending |
-| BUILD-01 | Phase 1 | Pending |
+| BUILD-01 | Phase 1, Plan 01-01 | Completed 2026-06-18 |
 | BUILD-02 | Phase 1 | Pending |
 | ACC-01 | Phase 1 | Pending |
 

@@ -41,7 +41,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 3 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — Build skeleton: build.zig.zon + build.zig with castholm/SDL v0.5.1+3.4.10 static + translate-c; src/main.zig SDL3 Init/Quit stub; src/lib.zig + Emulator.zig stub; .gitignore (Wave 1)
+- [x] 01-01-PLAN.md — Build skeleton: build.zig.zon + build.zig with castholm/SDL v0.5.1+3.4.10 static + built-in translate-c; src/main.zig SDL3 Init/Quit stub; src/lib.zig + Emulator.zig stub; .gitignore (Wave 1)
 - [ ] 01-02-PLAN.md — CPU + bus + ROM-only cart: packed-struct regfile, 256+256 comptime opcode tables, bus MMU with full 16-bit address dispatch + cycle accounting + peripheral stubs + serial capture + echo RAM, ROM-only loader with header checksum (Wave 2)
 - [ ] 01-03-PLAN.md — Test ROM runner: auto-fetch cpu_instrs.gb, run via Emulator, assert "Passed" in serial output; build.zig test step; ACC-01 gate (Wave 3)
 
@@ -106,7 +106,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Hello, ROM | 0/3 | Not started | - |
+| 1. Hello, ROM | 1/3 | Executing (Plans 02-03 pending) | 2026-06-18 |
 | 2. Playable DMG library | 0/3 | Not started | - |
 | 3. Picture on screen | 0/3 | Not started | - |
 | 4. Ship it | 0/3 | Not started | - |

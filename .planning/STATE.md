@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: planning
+status: executing
 stopped_at: Phase 01 context gathered
-last_updated: "2026-06-18T21:28:23.852Z"
-last_activity: 2026-06-18 — `/gsd-new-project --auto` completed; ROADMAP committed with 4 phases, 12 plans, 50 v1 requirements mapped 100%.
+last_updated: "2026-06-18T22:36:00.000Z"
+last_activity: 2026-06-18 -- Plan 01-01 completed
 progress:
   total_phases: 4
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  total_plans: 12
+  completed_plans: 1
+  percent: 8
 ---
 
 # Project State
@@ -21,30 +21,30 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-18)
 
 **Core value:** Run any Game Boy ROM with cycle-accurate CPU and timing, with a smaller binary and lower overhead than comparable emulators — using Zig as both implementation language and a forcing function for performance.
-**Current focus:** Phase 1 — Hello, ROM (Skeleton + CPU + Bus + ROM-only cart)
+**Current focus:** Phase 01 — hello-rom
 
 ## Current Position
 
-Phase: 1 of 4 (Hello, ROM)
-Plan: 0 of 3 in current phase
-Status: Ready to execute
-Last activity: 2026-06-18 — Phase 1 planned with 3 plans across 3 waves; ready to execute.
+Phase: 01 (hello-rom) — EXECUTING
+Plan: 2 of 3
+Status: Plan 01-01 (build skeleton) completed
+Last activity: 2026-06-18 -- Plan 01-01 completed
 
-Progress: [░░░░░░░░░░] 0% (planned, awaiting execution)
+Progress: [██░░░░░░░░] 8% (1/12 plans complete)
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 0
-- Average duration: — min
-- Total execution time: 0.0 hours
+- Total plans completed: 1
+- Average duration: 38 min
+- Total execution time: 0.6 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 1. Hello, ROM | 0 | 3 | — |
+| 1. Hello, ROM | 1 | 3 | 38m |
 | 2. Playable DMG library | 0 | 3 | — |
 | 3. Picture on screen | 0 | 3 | — |
 | 4. Ship it | 0 | 3 | — |
@@ -64,7 +64,8 @@ Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
 - **Init**: 4 phases (coarse, MVP), 12 plans, 50 v1 requirements — vertical-slice ordering per ARCHITECTURE.md
-- **Init**: Lock stack to Zig 0.16 + SDL3 via `castholm/SDL` with `b.addTranslateC` (NOT SDL2; not @cImport)
+- **Init**: Lock stack to Zig 0.16 + SDL3 via `castholm/SDL` with built-in `b.addTranslateC` (NOT SDL2; not @cImport; NOT external translate-c package — incompatible with 0.16)
+- **01-01**: Use built-in `b.addTranslateC` instead of external `translate-c` package (external requires Zig ≥0.17 `addPassthruArgs` API)
 - **Init**: Lock build target to `x86_64-linux-musl` with `ReleaseFast` + `strip` + `lto=.full`
 - **Init**: NO allocator in CPU/bus hot path; `packed struct` register file + MMIO with `comptime` offset asserts
 - **Init**: Test ROMs sourced via `zig build test` fetch (not vendored) — Blargg, Mooneye, dmg-acid2
@@ -94,6 +95,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-18T21:28:23.848Z
-Stopped at: Phase 01 context gathered
-Resume file: .planning/phases/01-hello-rom/01-CONTEXT.md
+Last session: 2026-06-18T22:36:00.000Z
+Stopped at: Completed Plan 01-01 (build skeleton)
+Resume file: .planning/phases/01-hello-rom/01-01-SUMMARY.md

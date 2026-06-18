@@ -5,7 +5,7 @@ zig-out/
 
 # Zig cache
 .zig-cache/
-.zig-cache/
+zig-pkg/
 
 # Test ROM cache
 tests/roms/
