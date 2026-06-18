@@ -6,9 +6,7 @@
     .dependencies = .{
         .sdl = .{
             .url = "git+https://github.com/castholm/SDL.git?ref=v0.5.1+3.4.10#018241066ffdae90d8b11f8bdc6242202f0f5451",
-        },
-        .translate_c = .{
-            .url = "git+https://codeberg.org/ziglang/translate-c.git#311f2ad053f43698ac7194e0e7a3c96b2be6c5c6",
+            .hash = "sdl-0.5.1+3.4.10-SDL--kbMpgGMXke11Ujh5HUPKch7G_SUAS12LI0QFoqj",
         },
     },
     .paths = .{
