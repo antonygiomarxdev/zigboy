@@ -1,2 +1,20 @@
-
 .planning/
+
+# Zig build output
+zig-out/
+
+# Zig cache
+.zig-cache/
+.zig-cache/
+
+# Test ROM cache
+tests/roms/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
