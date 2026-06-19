@@ -288,6 +288,7 @@ pub const OP_RST_38 = 0xFF;
 pub const T_CYCLES_PER_M_CYCLE = 4;
 pub const MCYCLES_PER_FRAME    = 17556;
 pub const T_CYCLES_PER_FRAME   = MCYCLES_PER_FRAME * T_CYCLES_PER_M_CYCLE; // 70224
+pub const DMG_CLOCK_HZ         = 4_194_304;
 
 // ── Interrupt Flags ──────────────────────────────────────────────────
 
