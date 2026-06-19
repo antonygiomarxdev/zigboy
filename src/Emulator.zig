@@ -66,11 +66,7 @@ pub const Emulator = struct {
     }
 
     pub fn getFrameBuffer(self: *Emulator) *const [addr.FRAMEBUFFER_LEN]u8 {
-        return &self.framebuffer;
-    }
-
-    pub fn getFrameBufferMut(self: *Emulator) *[addr.FRAMEBUFFER_LEN]u8 {
-        return &self.framebuffer;
+        return self.bus.getFrameBuffer();
     }
 
     pub fn getPc(self: *Emulator) u16 {

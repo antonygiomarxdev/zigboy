@@ -1,6 +1,7 @@
 const std = @import("std");
 const addr = @import("addr.zig");
 const Cartridge = @import("cartridge/mod.zig").Cartridge;
+const Ppu = @import("ppu.zig").Ppu;
 
 // ── MMIO Packed Struct ───────────────────────────────────────────────
 
@@ -16,7 +17,19 @@ pub const MMIO = extern struct {
     _pad_08_0E: [addr.MMIO_PAD_08_0E_SIZE]u8, // 0xFF08-0xFF0E
     IF: u8,                      // 0xFF0F
     _pad_10_3F: [addr.MMIO_APU_SIZE]u8, // 0xFF10-0xFF3F (APU region)
-    _pad_40_4F: [addr.MMIO_PPU_SIZE]u8, // 0xFF40-0xFF4F (PPU region)
+    LCDC: u8,                    // 0xFF40
+    STAT: u8,                    // 0xFF41
+    SCY: u8,                     // 0xFF42
+    SCX: u8,                     // 0xFF43
+    LY: u8,                      // 0xFF44
+    LYC: u8,                     // 0xFF45
+    DMA: u8,                     // 0xFF46
+    BGP: u8,                     // 0xFF47
+    OBP0: u8,                    // 0xFF48
+    OBP1: u8,                    // 0xFF49
+    WY: u8,                      // 0xFF4A
+    WX: u8,                      // 0xFF4B
+    _pad_4C_4F: [addr.MMIO_PAD_4C_4F_SIZE]u8, // 0xFF4C-0xFF4F
     BANK: u8,                    // 0xFF50
     _pad_51_7E: [addr.MMIO_PAD_51_7E_SIZE]u8, // 0xFF51-0xFF7E
     _pad_7F: [addr.MMIO_PAD_7F_SIZE]u8, // 0xFF7F
@@ -34,6 +47,18 @@ comptime {
     std.debug.assert(@offsetOf(MMIO, "TMA") == addr.TMA);
     std.debug.assert(@offsetOf(MMIO, "TAC") == addr.TAC);
     std.debug.assert(@offsetOf(MMIO, "IF") == addr.IF);
+    std.debug.assert(@offsetOf(MMIO, "LCDC") == addr.LCDC);
+    std.debug.assert(@offsetOf(MMIO, "STAT") == addr.STAT);
+    std.debug.assert(@offsetOf(MMIO, "SCY") == addr.SCY);
+    std.debug.assert(@offsetOf(MMIO, "SCX") == addr.SCX);
+    std.debug.assert(@offsetOf(MMIO, "LY") == addr.LY);
+    std.debug.assert(@offsetOf(MMIO, "LYC") == addr.LYC);
+    std.debug.assert(@offsetOf(MMIO, "DMA") == addr.DMA);
+    std.debug.assert(@offsetOf(MMIO, "BGP") == addr.BGP);
+    std.debug.assert(@offsetOf(MMIO, "OBP0") == addr.OBP0);
+    std.debug.assert(@offsetOf(MMIO, "OBP1") == addr.OBP1);
+    std.debug.assert(@offsetOf(MMIO, "WY") == addr.WY);
+    std.debug.assert(@offsetOf(MMIO, "WX") == addr.WX);
     std.debug.assert(@offsetOf(MMIO, "BANK") == addr.BANK);
     std.debug.assert(@offsetOf(MMIO, "IE") == 0xFF);
 }
@@ -43,9 +68,8 @@ comptime {
 pub const Bus = struct {
     wram: [addr.WRAM_SIZE]u8,
     hram: [addr.HRAM_SIZE]u8,
-    vram_stub: [addr.VRAM_SIZE]u8,
-    oam_stub: [addr.OAM_SIZE]u8,
     mmio: MMIO,
+    ppu: Ppu,
     cart: *Cartridge,
     serial_output: [256]u8,
     serial_index: usize,
@@ -63,9 +87,8 @@ pub const Bus = struct {
         var bus = Bus{
             .wram = undefined,
             .hram = undefined,
-            .vram_stub = undefined,
-            .oam_stub = undefined,
             .mmio = undefined,
+            .ppu = undefined,
             .cart = cart,
             .serial_output = undefined,
             .serial_index = 0,
@@ -77,8 +100,6 @@ pub const Bus = struct {
         };
         @memset(&bus.wram, addr.RAM_INIT_VALUE);
         @memset(&bus.hram, addr.RAM_INIT_VALUE);
-        @memset(&bus.vram_stub, addr.RAM_INIT_VALUE);
-        @memset(&bus.oam_stub, addr.RAM_INIT_VALUE);
         @memset(&bus.serial_output, 0);
         bus.mmio = .{
             .JOYP = addr.JOYP_INIT,
@@ -92,13 +113,26 @@ pub const Bus = struct {
             ._pad_08_0E = .{0} ** addr.MMIO_PAD_08_0E_SIZE,
             .IF = addr.IF_INIT,
             ._pad_10_3F = .{0} ** addr.MMIO_APU_SIZE,
-            ._pad_40_4F = .{0} ** addr.MMIO_PPU_SIZE,
+            .LCDC = 0x00,
+            .STAT = 0x00,
+            .SCY = 0x00,
+            .SCX = 0x00,
+            .LY = 0x00,
+            .LYC = 0x00,
+            .DMA = 0x00,
+            .BGP = 0x00,
+            .OBP0 = 0x00,
+            .OBP1 = 0x00,
+            .WY = 0x00,
+            .WX = 0x00,
+            ._pad_4C_4F = .{0} ** addr.MMIO_PAD_4C_4F_SIZE,
             .BANK = 0x00,
             ._pad_51_7E = .{0} ** addr.MMIO_PAD_51_7E_SIZE,
             ._pad_7F = .{0} ** addr.MMIO_PAD_7F_SIZE,
             ._pad_80_FE = .{0} ** addr.HRAM_SIZE,
             .IE = 0x00,
         };
+        bus.ppu = Ppu.init(&bus);
         return bus;
     }
 
@@ -106,12 +140,22 @@ pub const Bus = struct {
         self.t_cycles += addr.T_CYCLES_PER_M_CYCLE;
         return switch (address >> 12) {
             0x0...0x7 => self.cart.readRom(address),
-            0x8...0x9 => self.vram_stub[address - addr.VRAM_BASE],
+            0x8...0x9 => blk: {
+                if (self.ppu.mode == .drawing or self.ppu.mode == .oam_scan) {
+                    break :blk addr.UNMAPPED_READ;
+                }
+                break :blk self.ppu.vram[address - addr.VRAM_BASE];
+            },
             0xA...0xB => self.cart.readRam(address),
             0xC...0xD => self.wram[address - addr.WRAM_BASE],
             0xE => self.wram[address - addr.ECHO_BASE],
-            0xF => switch (address) {
-                addr.OAM_BASE...addr.OAM_END - 1 => self.oam_stub[address - addr.OAM_BASE],
+             0xF => switch (address) {
+                addr.OAM_BASE...addr.OAM_END - 1 => blk: {
+                    if (self.ppu.mode == .drawing or self.ppu.mode == .oam_scan) {
+                        break :blk addr.UNMAPPED_READ;
+                    }
+                    break :blk self.ppu.oam[address - addr.OAM_BASE];
+                },
                 addr.UNUSABLE_BASE...addr.UNUSABLE_END - 1 => addr.UNMAPPED_READ,
                 addr.IO_BASE...addr.IO_END - 1 => self.mmioRead(@intCast(address & addr.LOW_BYTE_MASK)),
                 addr.HRAM_BASE...addr.HRAM_END - 1 => self.hram[address - addr.HRAM_BASE],
@@ -126,12 +170,20 @@ pub const Bus = struct {
         self.t_cycles += addr.T_CYCLES_PER_M_CYCLE;
         switch (address >> 12) {
             0x0...0x7 => self.cart.writeRom(address, val),
-            0x8...0x9 => {},
+            0x8...0x9 => {
+                if (self.ppu.mode != .drawing) {
+                    self.ppu.vram[address - addr.VRAM_BASE] = val;
+                }
+            },
             0xA...0xB => self.cart.writeRam(address, val),
             0xC...0xD => self.wram[address - addr.WRAM_BASE] = val,
             0xE => self.wram[address - addr.ECHO_BASE] = val,
-            0xF => switch (address) {
-                addr.OAM_BASE...addr.OAM_END - 1 => {},
+             0xF => switch (address) {
+                addr.OAM_BASE...addr.OAM_END - 1 => {
+                    if (self.ppu.mode != .drawing and self.ppu.mode != .oam_scan) {
+                        self.ppu.oam[address - addr.OAM_BASE] = val;
+                    }
+                },
                 addr.UNUSABLE_BASE...addr.UNUSABLE_END - 1 => {},
                 addr.IO_BASE...addr.IO_END - 1 => self.mmioWrite(@intCast(address & addr.LOW_BYTE_MASK), val),
                 addr.HRAM_BASE...addr.HRAM_END - 1 => self.hram[address - addr.HRAM_BASE] = val,
@@ -145,13 +197,10 @@ pub const Bus = struct {
     pub fn tick(self: *Bus, mcycles: u4) void {
         const t_cycles_delta = @as(u64, mcycles) * addr.T_CYCLES_PER_M_CYCLE;
 
-        // VBlank check
-        const prev_frames = self.t_cycles / addr.T_CYCLES_PER_FRAME;
         self.t_cycles += t_cycles_delta;
-        const new_frames = self.t_cycles / addr.T_CYCLES_PER_FRAME;
-        if (new_frames > prev_frames) {
-            self.mmio.IF |= addr.IF_VBLANK;
-        }
+
+        // PPU advance
+        self.ppu.tick(mcycles);
 
         // DIV: 16-bit counter increments every T-cycle
         // DIV register at 0xFF04 = counter >> 8 (upper 8 bits)
@@ -202,10 +251,7 @@ pub const Bus = struct {
     }
 
     pub fn getFrameBuffer(self: *Bus) *const [addr.FRAMEBUFFER_LEN]u8 {
-        // Phase 1 stub — returns zeroed buffer
-        // In Phase 3 this will point to the PPU framebuffer
-        const buf = @as(*const [addr.FRAMEBUFFER_LEN]u8, @ptrCast(&self.oam_stub));
-        return buf;
+        return self.ppu.getFramebuffer();
     }
 
     fn mmioRead(self: *Bus, offset: u8) u8 {

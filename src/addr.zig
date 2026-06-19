@@ -34,7 +34,7 @@ pub const UNUSABLE_SIZE   = 0x60;
 pub const IO_SIZE         = 0x80;
 pub const MMIO_PAD_08_0E_SIZE = 7;
 pub const MMIO_APU_SIZE   = 48;
-pub const MMIO_PPU_SIZE   = 16;
+pub const MMIO_PAD_4C_4F_SIZE = 4;
 pub const MMIO_PAD_51_7E_SIZE = 46;
 pub const MMIO_PAD_7F_SIZE = 1;
 
@@ -116,6 +116,76 @@ pub const IF        = 0x0F;
 pub const BANK      = 0x50;
 
 pub const SC_TRANSFER: u8 = 0x81; // Blargg serial trigger
+
+// ── PPU Register Offsets (within IO_BASE 0xFF40-0xFF4F) ────────────
+
+pub const LCDC = 0x40;
+pub const STAT = 0x41;
+pub const SCY  = 0x42;
+pub const SCX  = 0x43;
+pub const LY   = 0x44;
+pub const LYC  = 0x45;
+pub const DMA  = 0x46;
+pub const BGP  = 0x47;
+pub const OBP0 = 0x48;
+pub const OBP1 = 0x49;
+pub const WY   = 0x4A;
+pub const WX   = 0x4B;
+
+// ── LCDC Bit Flags ─────────────────────────────────────────────────
+
+pub const LCDC_ENABLE      = 0x80;
+pub const LCDC_WIN_MAP     = 0x40;
+pub const LCDC_WIN_ENABLE  = 0x20;
+pub const LCDC_BG_DATA     = 0x10;
+pub const LCDC_BG_MAP      = 0x08;
+pub const LCDC_OBJ_SIZE    = 0x04;
+pub const LCDC_OBJ_ENABLE  = 0x02;
+pub const LCDC_BG_ENABLE   = 0x01;
+
+// ── STAT Bit Flags ─────────────────────────────────────────────────
+
+pub const STAT_LYC_IRQ    = 0x40;
+pub const STAT_MODE2_IRQ  = 0x20;
+pub const STAT_MODE1_IRQ  = 0x10;
+pub const STAT_MODE0_IRQ  = 0x08;
+pub const STAT_LYC        = 0x04;
+pub const STAT_MODE_MASK  = 0x03;
+pub const STAT_MODE_CLEAR = 0xF8;
+
+// ── Palette Shade Values ───────────────────────────────────────────
+
+pub const SHADE_WHITE = 0xFF;
+pub const SHADE_LIGHT = 0xAA;
+pub const SHADE_DARK  = 0x55;
+pub const SHADE_BLACK = 0x00;
+pub const PALETTE_SHIFT_PER_COLOR = 2;
+pub const PALETTE_COLOR_MASK = 0x03;
+
+// ── Window Constants ───────────────────────────────────────────────
+
+pub const WX_OFFSET = 7;
+
+// ── Tile Map / Data Base Addresses ─────────────────────────────────
+
+pub const TILE_DATA_0     = 0x8000;
+pub const TILE_DATA_1     = 0x8800;
+pub const TILE_MAP_0      = 0x9800;
+pub const TILE_MAP_1      = 0x9C00;
+pub const TILE_MAP_SIZE   = 0x0400;
+pub const TILE_SIZE_BYTES = 16;
+pub const TILE_ROWS       = 8;
+pub const TILE_BYTES_PER_ROW = 2;
+pub const TILES_PER_MAP_ROW = 32;
+pub const TILE_INDEX_SIGNED_BIAS = 128;
+
+// ── PPU Timing Constants ───────────────────────────────────────────
+
+pub const DOTS_PER_LINE   = 456;
+pub const DOTS_OAM        = 80;
+pub const DOTS_DRAWING    = 172;
+pub const LY_VBLANK_START = 144;
+pub const LY_MAX          = 153;
 
 // ── Flag Register Bit Positions & Masks ─────────────────────────────
 
