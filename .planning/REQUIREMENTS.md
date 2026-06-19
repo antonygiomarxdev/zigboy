@@ -70,7 +70,7 @@ Requirements for initial release. Each maps to roadmap phases.
 ### Build and Distribution
 
 - [x] **BUILD-01**: `zig build` produces a single statically-linked binary
-- [x] **BUILD-02**: `zig build test` runs a headless test suite (CPU + bus + MBC + timer) without SDL3 (test runner compiles; runtime crashes due to pre-existing CPU bug — will be resolved by Plan 01-02 bug fix)
+- [x] **BUILD-02**: `zig build test` runs a headless test suite (CPU + bus + MBC + timer) without SDL3 (test runner operational, 1/2 tests pass; Blargg cpu_instrs runs without crash, serial captured — ACC-01 deferred to Phase 2+)
 - [ ] **BUILD-03**: Release build is `ReleaseFast` with `strip` and `lto=.full`
 - [ ] **BUILD-04**: Canonical ship target is `x86_64-linux-musl` (no glibc dependency)
 - [ ] **BUILD-05**: Binary size under 5 MB on Linux x86_64-musl release build
@@ -121,6 +121,14 @@ Deferred to future release. Tracked but not in current roadmap.
 - **CGB-01**: Emulator detects and runs Game Boy Color ROMs in CGB mode
 - **CGB-02**: CGB PPU supports double-speed mode, palette RAM, VRAM bank switching
 - **CGB-03**: CGB CPU runs at 4.194304 / 8.388608 MHz selectable
+- **CGB-04**: Cart loader reads the CGB compatibility flag at header offset `0x0143` and exposes it on the cart struct (3 values: `0x00` DMG-only, `0xC0` CGB-only, `0x80` CGB-or-DMG)
+- **CGB-05**: Emulator loads the CGB boot ROM (2 KiB, distinct from DMG's 256-byte boot ROM) and runs the CGB boot sequence
+- **CGB-06**: HBlank DMA (HDMA1–HDMA5) and General Purpose DMA copy ROM/RAM/VRAM to VRAM/OAM correctly, locking the bus as required
+- **CGB-07**: CGB PPU implements attribute fetch (VRAM bank 1 carries OAM/tilemap attributes), CGB-only LCDC bits, and GBC-faster PPU modes
+- **CGB-08**: Palette RAM (BCPS/BCPD for BG, OCPS/OCPD for OBJ) stores 8 × 4-color palettes of 15-bit RGB; SDL3 host renders CGB color frames at native or upscaled resolution
+- **CGB-09**: Double-speed CPU clock (8.388608 MHz) toggled by KEY1 write + STOP, with all PPU/APU/timer cycle counters doubled while in 2× mode
+- **CGB-10**: CGB-only CPU opcode behavior (STOP, HALT semantics, `LD HL,SP+e` timing) is emulated
+- **CGB-11**: Emulator passes `cgb-acid2`, Mooneye's CGB-only test suites, and runs retail CGB titles (e.g., Pokémon Crystal, Zelda: Link's Awakening DX) without crashes
 - **SGB-01**: Emulator supports the Super Game Boy command stream
 - **SGB-02**: SGB border / palette / attribute commands render correctly
 
@@ -137,7 +145,7 @@ Explicitly excluded. Documented to prevent scope creep.
 
 | Feature | Reason |
 |---------|--------|
-| Game Boy Color (CGB) | Doubles CPU/PPU complexity; better to ship a complete DMG than a half-finished CGB |
+| Game Boy Color (CGB) | **Planned v2 (Phase 5)**, not "indefinitely deferred". v1 ships DMG only; v2 adds CGB as an additive layer. See `.planning/GBC-PREP.md` for the architectural-prep contract. |
 | Super Game Boy (SGB) | Separate video processor; no commercial demand for DMG emulator niche |
 | Link cable / IR / Printer | Peripheral complexity not justified for v1 single-player emulator |
 | Mobile (iOS/Android) | Desktop-first; SDL3 mobile support is secondary |
@@ -146,7 +154,6 @@ Explicitly excluded. Documented to prevent scope creep.
 | TAS / movie recording | Power-user feature; not core to "play DMG games" value |
 | Real-time cycle-perfect vsync | Frame pacing with drop-when-behind is sufficient; post-processing is separate work |
 | Cheat code UI | Out of scope; users can patch ROMs externally |
-| GBC backwards-compat quirks | Only relevant if CGB mode is enabled; explicitly v2+ |
 
 ## Traceability
 
@@ -166,8 +173,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | BUS-04 | Phase 1, Plan 01-02 | Completed 2026-06-18 |
 | CART-01 | Phase 1, Plan 01-02 | Completed 2026-06-18 |
 | BUILD-01 | Phase 1, Plan 01-01 | Completed 2026-06-18 |
-| BUILD-02 | Phase 1, Plan 01-03 | Completed (test runner compiles, runtime crash deferred) |
-| ACC-01 | Phase 1 | Pending |
+| BUILD-02 | Phase 1, Plan 01-03 | Completed 2026-06-18 (1/2 tests pass, Blargg runs without crash — serial captured) |
+| ACC-01 | Phase 2+ (requires PPU/LY, timer, MBC1) | Deferred from Phase 1 — needs PPU (LY register), timer (TIMA/TMA), and MBC1 support |
 
 ### Phase 2: Playable DMG library
 
@@ -222,6 +229,22 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ACC-08 | Phase 4 | Pending |
 | ACC-09 | Phase 4 | Pending |
 
+### Phase 5: Color on screen (v2, GBC) — *Deferred, planned*
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| CGB-01 | Phase 5 | Pending |
+| CGB-02 | Phase 5 | Pending |
+| CGB-03 | Phase 5 | Pending |
+| CGB-04 | Phase 5 | Pending |
+| CGB-05 | Phase 5 | Pending |
+| CGB-06 | Phase 5 | Pending |
+| CGB-07 | Phase 5 | Pending |
+| CGB-08 | Phase 5 | Pending |
+| CGB-09 | Phase 5 | Pending |
+| CGB-10 | Phase 5 | Pending |
+| CGB-11 | Phase 5 | Pending |
+
 **Coverage:**
 - v1 requirements: 50 total
 - Mapped to phases: 50
@@ -229,4 +252,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-06-18*
-*Last updated: 2026-06-18 after Plan 01-02 completion*
+*Last updated: 2026-06-18 after Phase 01 completion*

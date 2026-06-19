@@ -12,10 +12,15 @@ library (Phase 2: "Playable DMG library"), to a picture-on-screen SDL3 build
 phase, the user can run the emulator headless or visible and see a real,
 observable milestone.
 
+**v2 (Phase 5: "Color on screen")** extends the DMG core to Game Boy Color:
+CGB PPU, banked VRAM/WRAM, palette RAM, double-speed mode, CGB-only opcodes,
+and the CGB boot ROM. v1 is deliberately built to be CGB-aware so Phase 5 is
+additive, not a rewrite — see `.planning/GBC-PREP.md`.
+
 ## Phases
 
 **Phase Numbering:**
-- Integer phases (1, 2, 3): Planned milestone work
+- Integer phases (1, 2, 3, 4, 5): Planned milestone work
 - Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
 
 Decimal phases appear between their surrounding integers in numeric order.
@@ -24,6 +29,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 2: Playable DMG library** — Timer + Interrupts + Joypad + MBC1/2/3/5 + .sav, runs commercial DMG games headless
 - [ ] **Phase 3: Picture on screen** — PPU + SDL3 host + 59.7275 Hz frame pacing, Tetris visible in a window
 - [ ] **Phase 4: Ship it** — Release build, full accuracy gates, cross-platform, < 5 MB static binary, CI
+- [ ] **Phase 5: Color on screen (v2, GBC)** — CGB detection, banked VRAM/WRAM, palette RAM, double-speed mode, CGB PPU, CGB boot ROM. Architecture-prep notes in `.planning/GBC-PREP.md`.
 
 ## Phase Details
 
@@ -43,7 +49,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 Plans:
 - [x] 01-01-PLAN.md — Build skeleton: build.zig.zon + build.zig with castholm/SDL v0.5.1+3.4.10 static + built-in translate-c; src/main.zig SDL3 Init/Quit stub; src/lib.zig + Emulator.zig stub; .gitignore (Wave 1)
 - [x] 01-02-PLAN.md — CPU + bus + ROM-only cart: packed-struct regfile, 256+256 comptime opcode tables, bus MMU with full 16-bit address dispatch + cycle accounting + peripheral stubs + serial capture + echo RAM, ROM-only loader with header checksum (Wave 2)
-- [~] 01-03-PLAN.md — Test ROM runner: auto-fetch cpu_instrs.gb, run via Emulator, assert "Passed" in serial output; build.zig test step; ACC-01 gate (Wave 3) — Test runner created, compiles, but runtime crashes due to pre-existing CPU decoder bug. Task 3 checkpoint deferred.
+- [x] 01-03-PLAN.md — Test ROM runner: auto-fetch cpu_instrs.gb, run via Emulator, assert "Passed" in serial output; build.zig test step; ACC-01 gate (Wave 3) — Test runner created and operational. CPU decoder register-extraction bug fixed. Dangling `Cpu.bus` pointer fixed (heap-allocated Emulator). Serial capture verified with minimal test ROM. Blargg ROM loads, runs without crash, produces serial output. Full ACC-01 (all sub-tests pass) deferred — requires PPU (LY), timer, MBC1 in later phases.
 
 ### Phase 2: Playable DMG library
 **Goal**: Add timer, interrupts, joypad, MBC1/2/3/5 mappers, and battery-backed `.sav` persistence — enough for the user to run any common commercial DMG title (Tetris, Pokémon Red, Zelda: Link's Awakening) headless with working saves, but no visible output yet.
@@ -59,7 +65,7 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 02-01: MBC1/2/3/5 + .sav persistence — cart dispatch table, MBC1 mode flag, MBC5 9-bit bank register, `.sav` magic header + atomic write
+- [ ] 02-01: MBC1/2/3/5 + .sav persistence — cart dispatch table, MBC1 mode flag, MBC5 9-bit bank register, `.sav` magic header + atomic write *(executing)*
 - [ ] 02-02: Timer + interrupts — DIV @ 16384 Hz, TIMA @ 4 TAC rates, TMA reload, timer falling-edge quirk, full interrupt controller (IME, IE/IF) with EI delay
 - [ ] 02-03: Joypad input — P1 register with select bits, host keyboard mapping (configurable in `~/.config/zigboy/keys.conf`), joypad interrupt on transition
 
@@ -99,14 +105,37 @@ Plans:
 - [ ] 04-02: Full accuracy gate — fetch and run Blargg + Mooneye + dmg-acid2 in CI, report pass/fail per ROM, fail the build on any regression
 - [ ] 04-03: Cross-platform + CI — macOS ARM64 and Windows x86_64 targets, GitHub Actions matrix, release artifact publishing, README with build/run instructions
 
+### Phase 5: Color on screen (v2, GBC) — *DEFERRED, planned*
+**Goal**: Extend the shipped DMG core to Game Boy Color. By the end, the user runs `zigboy tetris.gbc` (a CGB-enhanced title like Pokémon Crystal or The Legend of Zelda: Link's Awakening DX) and sees the same SDL3 window with full color rendering, working banked memory, and CGB-accurate timing.
+**Mode:** mvp
+**Depends on**: Phase 4 (v1 ship). v1 architectural choices must allow Phase 5 to be additive — see `.planning/GBC-PREP.md`.
+**Requirements**: CGB-01, CGB-02, CGB-03, CGB-04 (CGB detection), CGB-05 (boot ROM model), CGB-06 (HDMA), CGB-07 (CGB PPU), CGB-08 (palette RAM), CGB-09 (double-speed timing), CGB-10 (CGB-only CPU opcodes), CGB-11 (CGB accuracy gate)
+**Success Criteria** (what must be TRUE):
+  1. Emulator detects the CGB compatibility flag at `0x0143` and runs the cart in CGB mode when applicable (or in DMG mode for `0xC0` flags chosen to run on DMG)
+  2. Banked VRAM (2 banks × 8 KiB, via VBK @ FF4F) and banked WRAM (8 banks × 4 KiB, via SVBK @ FF70) work correctly
+  3. Palette RAM (8 BG palettes + 8 OBJ palettes, BCPS/BCPD/OCPS/OCPD @ FF68–FF6B) renders color correctly via the SDL3 host
+  4. Double-speed mode (KEY1 @ FF4D) toggles 2× CPU clock and PPU modes (4.194304 / 8.388608 MHz) and is verified by `cgb-acid2`
+  5. The CGB boot ROM is supported (separate 2 KiB, different signature, different palette init) — selected per-cart from header
+  6. HBlank + General Purpose HDMA (FF51–FF55) transfers VRAM-to-VRAM correctly
+  7. CGB-only CPU opcodes (e.g., `LD HL,SP+e` quirks, the two CGB STOP behaviors) are emulated
+  8. The CGB accuracy suite passes (cgb-acid2, Mooneye's cgb-only tests, retail CGB titles like Pokémon Crystal without crashes)
+**Plans**: TBD — likely 4 plans: CGB cart detection + banked memory, CGB MMIO + palette RAM + HDMA, CGB PPU + color rendering, CGB boot ROM + double-speed + accuracy
+
+Plans:
+- [ ] 05-01: CGB cart detection + banked VRAM/WRAM — read 0x0143, route Bus reads/writes to banked buffers via VBK/SVBK, no functional change for DMG carts
+- [ ] 05-02: CGB MMIO + palette RAM + HDMA — KEY1 (speed prep), BCPS/BCPD/OCPS/OCPD (palettes), HDMA1–HDMA5 (HBlank + GDMA)
+- [ ] 05-03: CGB PPU + color rendering — extended PPU state machine with attribute fetch, OBJ priority over BG, color path through SDL3 host
+- [ ] 05-04: CGB boot ROM + double-speed + accuracy — 2 KiB CGB boot ROM dispatch, KEY1 toggle, cgb-acid2 + Mooneye CGB suite
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 (v2)
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Hello, ROM | 2/3 | Executing (Plan 03 partial — test runner compiles, CPU runtime crash blocks ACC-01) | 2026-06-18 |
-| 2. Playable DMG library | 0/3 | Not started | - |
+| 1. Hello, ROM | 3/3 | Complete — CPU, bus, ROM-only cart, serial capture, test runner operational; Blargg loads and runs without crash | 2026-06-18 |
+| 2. Playable DMG library | 0/3 | Executing — Wave 1 (MBC mappers) in progress | - |
 | 3. Picture on screen | 0/3 | Not started | - |
 | 4. Ship it | 0/3 | Not started | - |
+| 5. Color on screen (v2) | 0/4 | Deferred (v2, planned post-Phase-4) | - |

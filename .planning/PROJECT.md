@@ -41,7 +41,7 @@ Zig as both the implementation language and a forcing function for performance.
 
 ### Out of Scope
 
-- Game Boy Color (CGB) support — DMG-only for v1; CGB requires separate PPU/PPU bus work
+- Game Boy Color (CGB) support — DMG-only for v1; CGB is **planned for v2 (Phase 5)** and architecture must be CGB-aware so v2 is additive, not a rewrite. See `.planning/GBC-PREP.md`.
 - Game Boy Printer, Infrared, Link Cable — peripheral complexity not justified for v1
 - Super Game Boy (SGB) — separate video processor, deferred indefinitely
 - Audio (APU) output — v1 focuses on video/inputs; APU can come after visuals are stable
@@ -76,6 +76,7 @@ Zig as both the implementation language and a forcing function for performance.
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
 | DMG-only for v1 | CGB doubles the PPU/CPU complexity; better to ship a complete DMG than a half-finished CGB | — Pending |
+| v1 architecture is CGB-aware | CGB is planned for v2 (Phase 5). v1 must make choices (header parsing, memory sizing, MMIO layout) that do not require a rewrite to add CGB. See `.planning/GBC-PREP.md`. | — Pending |
 | SDL2 for window/input/audio I/O | Industry-standard, well-supported, simple C-ABI; Zig can call it directly | — Pending |
 | Coarse-grained phase plan | 3-5 phases so each phase ships a meaningful milestone; aligns with MVP structure | — Pending |
 | Manual mode, no auto-advance at runtime | Auto-mode is for project init; once we have a roadmap we want deliberate phase gates | — Pending |
