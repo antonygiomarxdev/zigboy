@@ -50,6 +50,8 @@ pub const Bus = struct {
     serial_output: [256]u8,
     serial_index: usize,
     t_cycles: u64,
+    div_counter: u16,
+    tima_counter: u16,
 
     pub fn getTCycles(self: *Bus) u64 {
         return self.t_cycles;
@@ -66,6 +68,8 @@ pub const Bus = struct {
             .serial_output = undefined,
             .serial_index = 0,
             .t_cycles = 0,
+            .div_counter = 0,
+            .tima_counter = 0,
         };
         @memset(&bus.wram, addr.RAM_INIT_VALUE);
         @memset(&bus.hram, addr.RAM_INIT_VALUE);
@@ -135,11 +139,39 @@ pub const Bus = struct {
     }
 
     pub fn tick(self: *Bus, mcycles: u4) void {
+        const t_cycles_delta = @as(u64, mcycles) * addr.T_CYCLES_PER_M_CYCLE;
+
+        // VBlank check
         const prev_frames = self.t_cycles / addr.T_CYCLES_PER_FRAME;
-        self.t_cycles += @as(u64, mcycles) * addr.T_CYCLES_PER_M_CYCLE;
+        self.t_cycles += t_cycles_delta;
         const new_frames = self.t_cycles / addr.T_CYCLES_PER_FRAME;
         if (new_frames > prev_frames) {
             self.mmio.IF |= addr.IF_VBLANK;
+        }
+
+        // DIV: 16-bit counter increments every T-cycle
+        // DIV register at 0xFF04 = counter >> 8 (upper 8 bits)
+        self.div_counter +%= @as(u16, @truncate(t_cycles_delta));
+        self.mmio.DIV = @truncate(self.div_counter >> 8);
+
+        // TIMA: increments at TAC-selected rate when enabled
+        if (self.mmio.TAC & addr.TIMER_TAC_ENABLE != 0) {
+            self.tima_counter +%= @as(u16, @truncate(t_cycles_delta));
+            const threshold: u16 = switch (self.mmio.TAC & addr.TIMER_TAC_CLOCK_MASK) {
+                0b00 => addr.TIMER_CLOCK_1024,
+                0b01 => addr.TIMER_CLOCK_16,
+                0b10 => addr.TIMER_CLOCK_64,
+                0b11 => addr.TIMER_CLOCK_256,
+                else => unreachable,
+            };
+            while (self.tima_counter >= threshold) {
+                self.tima_counter -= threshold;
+                self.mmio.TIMA +%= 1;
+                if (self.mmio.TIMA == 0) {
+                    self.mmio.TIMA = self.mmio.TMA;
+                    self.mmio.IF |= addr.IF_TIMER;
+                }
+            }
         }
     }
 
@@ -178,10 +210,10 @@ pub const Bus = struct {
             addr.JOYP => bytes[offset] & addr.LOW_NIBBLE_MASK,
             addr.SB => bytes[offset],
             addr.SC => bytes[offset],
-            addr.DIV => 0x00,
-            addr.TIMA => 0x00,
-            addr.TMA => 0x00,
-            addr.TAC => 0x00,
+            addr.DIV => bytes[offset],
+            addr.TIMA => bytes[offset],
+            addr.TMA => bytes[offset],
+            addr.TAC => bytes[offset],
             addr.IF => bytes[offset] | addr.IF_UNUSED_BITS,
             else => bytes[offset],
         };
@@ -205,7 +237,12 @@ pub const Bus = struct {
                     bytes[offset] = val;
                 }
             },
-            addr.DIV, addr.TIMA, addr.TMA, addr.TAC => {
+            addr.DIV => {
+                bytes[offset] = 0x00;
+                self.div_counter = 0;
+                self.tima_counter = 0;
+            },
+            addr.TIMA, addr.TMA, addr.TAC => {
                 bytes[offset] = val;
             },
             addr.IF => bytes[addr.IF] = val & addr.INTERRUPT_MASK,

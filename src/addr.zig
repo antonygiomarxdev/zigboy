@@ -267,6 +267,15 @@ pub const MBC5_BANK_LO_BITS      = 8;
 pub const MBC5_RAM_BANK_MASK     = 0x0F;
 pub const MBC5_INITIAL_BANK      = 1;
 
+// ── Timer Constants ──────────────────────────────────────────────────
+
+pub const TIMER_TAC_ENABLE     = 0x04;
+pub const TIMER_TAC_CLOCK_MASK = 0x03;
+pub const TIMER_CLOCK_1024     = 1024;
+pub const TIMER_CLOCK_16       = 16;
+pub const TIMER_CLOCK_64       = 64;
+pub const TIMER_CLOCK_256      = 256;
+
 // ── ALU Group Ranges (top 5 bits of opcode after masking with ALU_GROUP_MASK) ─
 
 pub const ALU_GROUP_ADD = 0x10;
