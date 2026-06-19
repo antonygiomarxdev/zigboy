@@ -52,6 +52,8 @@ pub const Bus = struct {
     t_cycles: u64,
     div_counter: u16,
     tima_counter: u16,
+    action_buttons: u4,
+    direction_buttons: u4,
 
     pub fn getTCycles(self: *Bus) u64 {
         return self.t_cycles;
@@ -70,6 +72,8 @@ pub const Bus = struct {
             .t_cycles = 0,
             .div_counter = 0,
             .tima_counter = 0,
+            .action_buttons = 0x0F,
+            .direction_buttons = 0x0F,
         };
         @memset(&bus.wram, addr.RAM_INIT_VALUE);
         @memset(&bus.hram, addr.RAM_INIT_VALUE);
@@ -207,7 +211,18 @@ pub const Bus = struct {
     fn mmioRead(self: *Bus, offset: u8) u8 {
         const bytes = std.mem.asBytes(&self.mmio);
         return switch (offset) {
-            addr.JOYP => bytes[offset] & addr.LOW_NIBBLE_MASK,
+            addr.JOYP => blk: {
+                const sel = self.mmio.JOYP & (addr.JOYP_SELECT_ACTION | addr.JOYP_SELECT_DIRECTION);
+                const matrix: u4 = if (sel & addr.JOYP_SELECT_ACTION == 0 and sel & addr.JOYP_SELECT_DIRECTION == 0)
+                    self.action_buttons & self.direction_buttons
+                else if (sel & addr.JOYP_SELECT_ACTION == 0)
+                    self.action_buttons
+                else if (sel & addr.JOYP_SELECT_DIRECTION == 0)
+                    self.direction_buttons
+                else
+                    0x0F;
+                break :blk addr.JOYP_UNUSED_BITS | sel | @as(u8, matrix);
+            },
             addr.SB => bytes[offset],
             addr.SC => bytes[offset],
             addr.DIV => bytes[offset],
@@ -222,7 +237,7 @@ pub const Bus = struct {
     fn mmioWrite(self: *Bus, offset: u8, val: u8) void {
         const bytes = std.mem.asBytes(&self.mmio);
         switch (offset) {
-            addr.JOYP => bytes[offset] = val & addr.LOW_NIBBLE_MASK,
+            addr.JOYP => self.mmio.JOYP = (val & (addr.JOYP_SELECT_ACTION | addr.JOYP_SELECT_DIRECTION)) | addr.JOYP_UNUSED_BITS | 0x0F,
             addr.SB => {
                 if (self.serial_index < self.serial_output.len) {
                     self.serial_output[self.serial_index] = val;

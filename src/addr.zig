@@ -267,6 +267,32 @@ pub const MBC5_BANK_LO_BITS      = 8;
 pub const MBC5_RAM_BANK_MASK     = 0x0F;
 pub const MBC5_INITIAL_BANK      = 1;
 
+// ── Joypad / Button Constants ────────────────────────────────────────
+
+pub const JOYP_SELECT_ACTION    = 0x20;
+pub const JOYP_SELECT_DIRECTION = 0x10;
+pub const JOYP_UNUSED_BITS      = 0xC0;
+
+pub const JoypadButton = enum(u3) {
+    a = 0,
+    b = 1,
+    select = 2,
+    start = 3,
+    right = 4,
+    left = 5,
+    up = 6,
+    down = 7,
+};
+
+pub const BUTTON_A: u3 = 0;
+pub const BUTTON_B: u3 = 1;
+pub const BUTTON_SELECT: u3 = 2;
+pub const BUTTON_START: u3 = 3;
+pub const BUTTON_RIGHT: u3 = 4;
+pub const BUTTON_LEFT: u3 = 5;
+pub const BUTTON_UP: u3 = 6;
+pub const BUTTON_DOWN: u3 = 7;
+
 // ── Timer Constants ──────────────────────────────────────────────────
 
 pub const TIMER_TAC_ENABLE     = 0x04;

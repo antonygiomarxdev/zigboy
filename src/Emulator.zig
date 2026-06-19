@@ -76,6 +76,28 @@ pub const Emulator = struct {
     pub fn getPc(self: *Emulator) u16 {
         return self.cpu.getPc();
     }
+
+    pub fn setButtonState(self: *Emulator, button: addr.JoypadButton, pressed: bool) void {
+        const bit_val: u4 = if (pressed) 0 else 1;
+        const bit_idx: u3 = @as(u3, @intCast(@intFromEnum(button) & 0x03));
+        const mask: u4 = @as(u4, 1) << bit_idx;
+
+        if (@intFromEnum(button) >= 4) {
+            const old = self.bus.direction_buttons;
+            const new = (old & ~mask) | (bit_val << bit_idx);
+            if (old != new) {
+                self.bus.mmio.IF |= addr.IF_JOYPAD;
+            }
+            self.bus.direction_buttons = new;
+        } else {
+            const old = self.bus.action_buttons;
+            const new = (old & ~mask) | (bit_val << bit_idx);
+            if (old != new) {
+                self.bus.mmio.IF |= addr.IF_JOYPAD;
+            }
+            self.bus.action_buttons = new;
+        }
+    }
 };
 
 pub const CART_MAX_SIZE = addr.CART_MAX_SIZE;
