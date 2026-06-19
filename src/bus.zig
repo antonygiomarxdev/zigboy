@@ -78,6 +78,9 @@ pub const Bus = struct {
     tima_counter: u16,
     action_buttons: u4,
     direction_buttons: u4,
+    dma_active: bool,
+    dma_source_high: u8,
+    dma_index: u8,
 
     pub fn getTCycles(self: *Bus) u64 {
         return self.t_cycles;
@@ -97,6 +100,9 @@ pub const Bus = struct {
             .tima_counter = 0,
             .action_buttons = 0x0F,
             .direction_buttons = 0x0F,
+            .dma_active = false,
+            .dma_source_high = 0,
+            .dma_index = 0,
         };
         @memset(&bus.wram, addr.RAM_INIT_VALUE);
         @memset(&bus.hram, addr.RAM_INIT_VALUE);
@@ -151,8 +157,8 @@ pub const Bus = struct {
             0xE => self.wram[address - addr.ECHO_BASE],
              0xF => switch (address) {
                 addr.OAM_BASE...addr.OAM_END - 1 => blk: {
-                    if (self.ppu.mode == .drawing or self.ppu.mode == .oam_scan) {
-                        break :blk addr.UNMAPPED_READ;
+                    if (self.dma_active or self.ppu.mode == .drawing or self.ppu.mode == .oam_scan) {
+                        break :blk addr.DMA_BLOCK_VAL;
                     }
                     break :blk self.ppu.oam[address - addr.OAM_BASE];
                 },
@@ -180,7 +186,7 @@ pub const Bus = struct {
             0xE => self.wram[address - addr.ECHO_BASE] = val,
              0xF => switch (address) {
                 addr.OAM_BASE...addr.OAM_END - 1 => {
-                    if (self.ppu.mode != .drawing and self.ppu.mode != .oam_scan) {
+                    if (!self.dma_active and self.ppu.mode != .drawing and self.ppu.mode != .oam_scan) {
                         self.ppu.oam[address - addr.OAM_BASE] = val;
                     }
                 },
@@ -207,6 +213,18 @@ pub const Bus = struct {
         self.div_counter +%= @as(u16, @truncate(t_cycles_delta));
         self.mmio.DIV = @truncate(self.div_counter >> 8);
 
+        // OAM DMA: one byte per M-cycle from source page to OAM
+        if (self.dma_active) {
+            var i: u4 = 0;
+            while (i < mcycles) : (i += 1) {
+                if (self.dma_index < addr.DMA_TRANSFER_SIZE) {
+                    self.dmaTransfer();
+                } else {
+                    self.dma_active = false;
+                }
+            }
+        }
+
         // TIMA: increments at TAC-selected rate when enabled
         if (self.mmio.TAC & addr.TIMER_TAC_ENABLE != 0) {
             self.tima_counter +%= @as(u16, @truncate(t_cycles_delta));
@@ -226,6 +244,26 @@ pub const Bus = struct {
                 }
             }
         }
+    }
+
+    fn dmaTransfer(self: *Bus) void {
+        const src_addr = (@as(u16, self.dma_source_high) << addr.DMA_SOURCE_SHIFT) | @as(u16, self.dma_index);
+        const byte = switch (src_addr >> 12) {
+            0x0...0x7 => self.cart.readRom(src_addr),
+            0x8...0x9 => self.ppu.vram[src_addr - addr.VRAM_BASE],
+            0xA...0xB => self.cart.readRam(src_addr),
+            0xC...0xD => self.wram[src_addr - addr.WRAM_BASE],
+            0xE => self.wram[src_addr - addr.ECHO_BASE],
+            0xF => if (src_addr >= addr.HRAM_BASE and src_addr < addr.HRAM_END)
+                self.hram[src_addr - addr.HRAM_BASE]
+            else if (src_addr == addr.IE_ADDR)
+                self.mmio.IE
+            else
+                addr.UNMAPPED_READ,
+            else => addr.UNMAPPED_READ,
+        };
+        self.ppu.oam[self.dma_index] = byte;
+        self.dma_index += 1;
     }
 
     pub fn hasInterruptRequest(self: *Bus) bool {
@@ -305,6 +343,12 @@ pub const Bus = struct {
             },
             addr.TIMA, addr.TMA, addr.TAC => {
                 bytes[offset] = val;
+            },
+            addr.DMA => {
+                bytes[offset] = val;
+                self.dma_active = true;
+                self.dma_source_high = val;
+                self.dma_index = 0;
             },
             addr.IF => bytes[addr.IF] = val & addr.INTERRUPT_MASK,
             else => bytes[offset] = val,

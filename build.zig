@@ -86,9 +86,22 @@ pub fn build(b: *std.Build) void {
     const serial_test = b.addTest(.{ .root_module = serial_mod });
     const serial_run = b.addRunArtifact(serial_test);
 
+    // PPU test (sprite + DMA)
+    const ppu_mod = b.createModule(.{
+        .root_source_file = b.path("tests/ppu_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    ppu_mod.addImport("emulator", emulator_mod);
+    const ppu_test = b.addTest(.{ .root_module = ppu_mod });
+    const ppu_run = b.addRunArtifact(ppu_test);
+    const ppu_step = b.step("ppu", "Run PPU sprite/DMA tests");
+    ppu_step.dependOn(&ppu_run.step);
+
     const test_step = b.step("test", "Run all tests");
     test_step.dependOn(&blargg_run.step);
     test_step.dependOn(&serial_run.step);
+    test_step.dependOn(&ppu_run.step);
 
     const serial_step = b.step("serial", "Run serial capture test");
     serial_step.dependOn(&serial_run.step);

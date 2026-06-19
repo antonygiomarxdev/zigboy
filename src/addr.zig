@@ -152,6 +152,7 @@ pub const STAT_MODE0_IRQ  = 0x08;
 pub const STAT_LYC        = 0x04;
 pub const STAT_MODE_MASK  = 0x03;
 pub const STAT_MODE_CLEAR = 0xF8;
+pub const STAT_INIT_VAL   = 0x00;
 
 // ── Palette Shade Values ───────────────────────────────────────────
 
@@ -161,6 +162,10 @@ pub const SHADE_DARK  = 0x55;
 pub const SHADE_BLACK = 0x00;
 pub const PALETTE_SHIFT_PER_COLOR = 2;
 pub const PALETTE_COLOR_MASK = 0x03;
+pub const PAL_ID_WHITE      = 0;
+pub const PAL_ID_LIGHT      = 1;
+pub const PAL_ID_DARK       = 2;
+pub const PAL_ID_BLACK      = 3;
 
 // ── Window Constants ───────────────────────────────────────────────
 
@@ -225,6 +230,7 @@ pub const LOW_12_BITS = 0x0FFF;
 
 // ── Specific Opcodes Used in execute() ──────────────────────────────
 
+pub const OP_HALT        = 0x76;
 pub const OP_LD_HL_IMM8  = 0x36;
 pub const OP_LD_IMM16_SP = 0x08;
 pub const OP_LD_IMM16_A  = 0xEA;
@@ -382,6 +388,31 @@ pub const ALU_GROUP_AND = 0x30;
 pub const ALU_GROUP_XOR = 0x38;
 pub const ALU_GROUP_OR  = 0x00;
 pub const ALU_GROUP_CP  = 0x08;
+
+// ── Sprite Constants ──────────────────────────────────────────────────
+
+pub const SPRITE_NUM_ENTRIES     = 40;
+pub const SPRITE_ENTRY_SIZE      = 4;
+pub const SPRITES_MAX_PER_LINE   = 10;
+pub const SPRITE_HEIGHT_8        = 8;
+pub const SPRITE_HEIGHT_16       = 16;
+pub const SPRITE_WIDTH           = 8;
+pub const SPRITE_MAX_COL         = SPRITE_WIDTH - 1;
+pub const SPRITE_Y_OFFSET        = 16;
+pub const SPRITE_X_OFFSET        = 8;
+pub const SPRITE_TILE_MASK       = 0xFE;
+pub const SPRITE_TILE_LSB        = 0x01;
+
+pub const SPRITE_ATTR_PRIORITY  = 0x80;
+pub const SPRITE_ATTR_Y_FLIP    = 0x40;
+pub const SPRITE_ATTR_X_FLIP    = 0x20;
+pub const SPRITE_ATTR_PALETTE   = 0x10;
+
+// ── OAM DMA Constants ─────────────────────────────────────────────────
+
+pub const DMA_TRANSFER_SIZE     = 160;
+pub const DMA_SOURCE_SHIFT      = 8;
+pub const DMA_BLOCK_VAL         = 0xFF;
 
 // ── Comptime Sanity Checks ──────────────────────────────────────────
 

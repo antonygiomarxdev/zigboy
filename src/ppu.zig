@@ -18,6 +18,12 @@ pub const Ppu = struct {
     bus: *Bus,
     wy_counter: u8,
     window_rendered_this_line: bool,
+    selected_sprites: [addr.SPRITES_MAX_PER_LINE]u8,
+    selected_count: u8,
+
+    pub fn fixupBus(self: *Ppu, bus: *Bus) void {
+        self.bus = bus;
+    }
 
     pub fn init(bus: *Bus) Ppu {
         var ppu = Ppu{
@@ -29,6 +35,8 @@ pub const Ppu = struct {
             .bus = bus,
             .wy_counter = 0,
             .window_rendered_this_line = false,
+            .selected_sprites = undefined,
+            .selected_count = 0,
         };
         @memset(&ppu.framebuffer, addr.SHADE_WHITE);
         @memset(&ppu.vram, 0);
@@ -49,7 +57,7 @@ pub const Ppu = struct {
                 self.bus.mmio.LY = 0;
                 self.dot_counter = 0;
                 self.mode = .oam_scan;
-                self.bus.mmio.STAT = 0x00;
+                self.bus.mmio.STAT = addr.STAT_INIT_VAL;
                 self.wy_counter = 0;
             }
             return;
@@ -70,6 +78,7 @@ pub const Ppu = struct {
                 self.mode = .oam_scan;
                 self.updateStat();
                 self.wy_counter = 0;
+                self.scanOamSprites(0);
             }
         }
 
@@ -80,6 +89,9 @@ pub const Ppu = struct {
             if (new_mode != old_mode) {
                 self.mode = new_mode;
                 self.updateStat();
+                if (new_mode == .oam_scan) {
+                    self.scanOamSprites(self.bus.mmio.LY);
+                }
                 if (new_mode == .drawing) {
                     self.renderLine();
                 }
@@ -122,6 +134,8 @@ pub const Ppu = struct {
             self.wy_counter +%= 1;
             self.window_rendered_this_line = true;
         }
+
+        self.renderSprites(ly);
     }
 
     fn renderBgLine(self: *Ppu, ly: u8) void {
@@ -154,19 +168,20 @@ pub const Ppu = struct {
             const plane0 = self.vram[row_offset];
             const plane1 = self.vram[row_offset + 1];
 
-            const bit = 7 - @as(u3, @truncate(x_in_tile));
+            const bit = addr.SPRITE_MAX_COL - @as(u3, @truncate(x_in_tile));
             const color_id = ((plane1 >> bit) & 1) << 1 | ((plane0 >> bit) & 1);
 
             const shade = @as(u8, @truncate((bgp >> (@as(u3, @intCast(color_id)) * addr.PALETTE_SHIFT_PER_COLOR)) & addr.PALETTE_COLOR_MASK));
             const pixel: u8 = switch (shade) {
-                0 => addr.SHADE_WHITE,
-                1 => addr.SHADE_LIGHT,
-                2 => addr.SHADE_DARK,
-                3 => addr.SHADE_BLACK,
+                addr.PAL_ID_WHITE => addr.SHADE_WHITE,
+                addr.PAL_ID_LIGHT => addr.SHADE_LIGHT,
+                addr.PAL_ID_DARK => addr.SHADE_DARK,
+                addr.PAL_ID_BLACK => addr.SHADE_BLACK,
                 else => addr.SHADE_WHITE,
             };
 
-            self.framebuffer[ly * addr.SCREEN_WIDTH + x] = pixel;
+            const fb_idx = @as(usize, ly) * addr.SCREEN_WIDTH + x;
+            self.framebuffer[fb_idx] = pixel;
         }
     }
 
@@ -204,19 +219,150 @@ pub const Ppu = struct {
             const plane0 = self.vram[row_offset];
             const plane1 = self.vram[row_offset + 1];
 
-            const bit = 7 - @as(u3, @truncate(x_in_tile));
+            const bit = addr.SPRITE_MAX_COL - @as(u3, @truncate(x_in_tile));
             const color_id = ((plane1 >> bit) & 1) << 1 | ((plane0 >> bit) & 1);
 
             const shade = @as(u8, @truncate((bgp >> (@as(u3, @intCast(color_id)) * addr.PALETTE_SHIFT_PER_COLOR)) & addr.PALETTE_COLOR_MASK));
             const pixel: u8 = switch (shade) {
-                0 => addr.SHADE_WHITE,
-                1 => addr.SHADE_LIGHT,
-                2 => addr.SHADE_DARK,
-                3 => addr.SHADE_BLACK,
+                addr.PAL_ID_WHITE => addr.SHADE_WHITE,
+                addr.PAL_ID_LIGHT => addr.SHADE_LIGHT,
+                addr.PAL_ID_DARK => addr.SHADE_DARK,
+                addr.PAL_ID_BLACK => addr.SHADE_BLACK,
                 else => addr.SHADE_WHITE,
             };
 
-            self.framebuffer[ly * addr.SCREEN_WIDTH + x] = pixel;
+            const fb_idx = @as(usize, ly) * addr.SCREEN_WIDTH + x;
+            self.framebuffer[fb_idx] = pixel;
+        }
+    }
+
+    pub fn scanOamSprites(self: *Ppu, ly: u8) void {
+        const lcdc = self.bus.mmio.LCDC;
+        if (lcdc & addr.LCDC_OBJ_ENABLE == 0) {
+            self.selected_count = 0;
+            return;
+        }
+
+        const sprite_height: u8 = if (lcdc & addr.LCDC_OBJ_SIZE != 0) addr.SPRITE_HEIGHT_16 else addr.SPRITE_HEIGHT_8;
+        self.selected_count = 0;
+
+        var i: u8 = 0;
+        while (i < addr.SPRITE_NUM_ENTRIES and self.selected_count < addr.SPRITES_MAX_PER_LINE) : (i += 1) {
+            const sy = self.oam[i * addr.SPRITE_ENTRY_SIZE];
+            const y_pixel = sy -% addr.SPRITE_Y_OFFSET;
+            if (ly >= y_pixel and ly < y_pixel + sprite_height) {
+                self.selected_sprites[self.selected_count] = i;
+                self.selected_count += 1;
+            }
+        }
+    }
+
+    pub fn renderSprites(self: *Ppu, ly: u8) void {
+        const lcdc = self.bus.mmio.LCDC;
+        if (lcdc & addr.LCDC_OBJ_ENABLE == 0) return;
+        if (self.selected_count == 0) return;
+
+        const sprite_height: u8 = if (lcdc & addr.LCDC_OBJ_SIZE != 0) addr.SPRITE_HEIGHT_16 else addr.SPRITE_HEIGHT_8;
+
+        // Sort selected sprites by priority: lower X first; if same X, lower index first
+        var sorted: [addr.SPRITES_MAX_PER_LINE]u8 = undefined;
+        @memcpy(sorted[0..self.selected_count], self.selected_sprites[0..self.selected_count]);
+        const count = self.selected_count;
+
+        {
+            var i: usize = 0;
+            while (i < count) : (i += 1) {
+                var j: usize = i + 1;
+                while (j < count) : (j += 1) {
+                    const ax = self.oam[sorted[i] * addr.SPRITE_ENTRY_SIZE + 1];
+                    const bx = self.oam[sorted[j] * addr.SPRITE_ENTRY_SIZE + 1];
+                    if (ax > bx or (ax == bx and sorted[i] > sorted[j])) {
+                        const tmp = sorted[i];
+                        sorted[i] = sorted[j];
+                        sorted[j] = tmp;
+                    }
+                }
+            }
+        }
+
+        for (0..addr.SCREEN_WIDTH) |x| {
+            var best_color_id: u2 = 0;
+            var best_priority: bool = false;
+            var best_palette: bool = false;
+            var found: bool = false;
+
+            for (sorted[0..count]) |sprite_idx| {
+                const sx = self.oam[sprite_idx * addr.SPRITE_ENTRY_SIZE + 1];
+                if (sx == 0) continue;
+                const x_pixel = sx -% addr.SPRITE_X_OFFSET;
+                if (x < x_pixel or x >= x_pixel + addr.SPRITE_WIDTH) continue;
+
+                const sy = self.oam[sprite_idx * addr.SPRITE_ENTRY_SIZE];
+                const y_pixel = sy -% addr.SPRITE_Y_OFFSET;
+                if (ly < y_pixel) continue;
+                const y_in_sprite = ly - y_pixel;
+                if (y_in_sprite >= sprite_height) continue;
+
+                const flags = self.oam[sprite_idx * addr.SPRITE_ENTRY_SIZE + 3];
+                const tile_index = self.oam[sprite_idx * addr.SPRITE_ENTRY_SIZE + 2];
+
+                var sprite_row = y_in_sprite;
+                if (flags & addr.SPRITE_ATTR_Y_FLIP != 0) {
+                    sprite_row = sprite_height - 1 - y_in_sprite;
+                }
+
+                const effective_tile = if (sprite_height == addr.SPRITE_HEIGHT_16)
+                    if (sprite_row < addr.SPRITE_HEIGHT_8) tile_index & addr.SPRITE_TILE_MASK else tile_index | addr.SPRITE_TILE_LSB
+                else
+                    tile_index;
+
+                const tile_row = if (sprite_height == addr.SPRITE_HEIGHT_16)
+                    sprite_row % addr.SPRITE_HEIGHT_8
+                else
+                    sprite_row;
+
+                const tile_addr = addr.VRAM_BASE + @as(u16, effective_tile) * addr.TILE_SIZE_BYTES + @as(u16, tile_row) * addr.TILE_BYTES_PER_ROW;
+                const vram_offset = tile_addr - addr.VRAM_BASE;
+
+                var x_in_sprite = @as(u3, @truncate(x - x_pixel));
+                if (flags & addr.SPRITE_ATTR_X_FLIP != 0) {
+                    x_in_sprite = (addr.SPRITE_WIDTH - 1) - x_in_sprite;
+                }
+                const bit = (addr.SPRITE_WIDTH - 1) - x_in_sprite;
+
+                const plane0 = self.vram[vram_offset];
+                const plane1 = self.vram[vram_offset + 1];
+                const color_id: u2 = @truncate(((plane1 >> bit) & 1) << 1 | ((plane0 >> bit) & 1));
+
+                if (color_id == 0) continue;
+
+                best_color_id = color_id;
+                best_priority = flags & addr.SPRITE_ATTR_PRIORITY != 0;
+                best_palette = flags & addr.SPRITE_ATTR_PALETTE != 0;
+                found = true;
+                break;
+            }
+
+            if (found) {
+                const palette = if (best_palette) self.bus.mmio.OBP1 else self.bus.mmio.OBP0;
+                const shade = @as(u8, @truncate((palette >> (@as(u3, @intCast(best_color_id)) * addr.PALETTE_SHIFT_PER_COLOR)) & addr.PALETTE_COLOR_MASK));
+                const pixel: u8 = switch (shade) {
+                    0 => addr.SHADE_WHITE,
+                    1 => addr.SHADE_LIGHT,
+                    2 => addr.SHADE_DARK,
+                    3 => addr.SHADE_BLACK,
+                    else => addr.SHADE_WHITE,
+                };
+
+                const fb_idx = @as(usize, ly) * addr.SCREEN_WIDTH + x;
+                if (best_priority) {
+                    if (self.framebuffer[fb_idx] == addr.SHADE_WHITE) {
+                        self.framebuffer[fb_idx] = pixel;
+                    }
+                } else {
+                    self.framebuffer[fb_idx] = pixel;
+                }
+            }
         }
     }
 

@@ -1,8 +1,9 @@
 const std = @import("std");
-const addr = @import("addr.zig");
 const Cpu = @import("cpu.zig").Cpu;
-const Bus = @import("bus.zig").Bus;
 const Cartridge = @import("cartridge/mod.zig").Cartridge;
+
+pub const addr = @import("addr.zig");
+pub const Bus = @import("bus.zig").Bus;
 
 pub const Emulator = struct {
     cpu: Cpu,
@@ -24,6 +25,7 @@ pub const Emulator = struct {
         errdefer self.cart.deinit(allocator);
 
         self.bus = Bus.init(&self.cart);
+        self.bus.ppu.fixupBus(&self.bus);
         self.cpu = Cpu.init(&self.bus);
         self.allocator = allocator;
         self.rom_slice = rom_slice;
