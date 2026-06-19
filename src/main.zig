@@ -1,5 +1,6 @@
 const std = @import("std");
 const c = @import("c");
+const emu = @import("emulator");
 const lib = @import("lib.zig");
 
 pub fn main(init: std.process.Init.Minimal) !void {

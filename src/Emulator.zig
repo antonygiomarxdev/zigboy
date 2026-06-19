@@ -2,12 +2,12 @@ const std = @import("std");
 const addr = @import("addr.zig");
 const Cpu = @import("cpu.zig").Cpu;
 const Bus = @import("bus.zig").Bus;
-const RomOnly = @import("cartridge/mod.zig").RomOnly;
+const Cartridge = @import("cartridge/mod.zig").Cartridge;
 
 pub const Emulator = struct {
     cpu: Cpu,
     bus: Bus,
-    cart: RomOnly,
+    cart: Cartridge,
     allocator: std.mem.Allocator,
     rom_slice: []const u8,
     framebuffer: [addr.FRAMEBUFFER_LEN]u8,
@@ -20,7 +20,7 @@ pub const Emulator = struct {
         @memcpy(rom_slice, rom_bytes);
         errdefer allocator.free(rom_slice);
 
-        self.cart = try RomOnly.load(allocator, rom_slice);
+        self.cart = try Cartridge.load(allocator, rom_slice);
         errdefer self.cart.deinit(allocator);
 
         self.bus = Bus.init(&self.cart);
