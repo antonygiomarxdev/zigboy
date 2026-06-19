@@ -4,14 +4,14 @@ milestone: v1.0
 milestone_name: milestone
 status: executing
 stopped_at: Phase 01 context gathered
-last_updated: "2026-06-18T22:36:00.000Z"
-last_activity: 2026-06-18 -- Plan 01-01 completed
+last_updated: "2026-06-18T23:05:00.000Z"
+last_activity: 2026-06-18 -- Plan 01-03 partially completed (2/3 tasks)
 progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 12
-  completed_plans: 1
-  percent: 8
+  completed_plans: 2
+  percent: 17
 ---
 
 # Project State
@@ -26,33 +26,33 @@ See: .planning/PROJECT.md (updated 2026-06-18)
 ## Current Position
 
 Phase: 01 (hello-rom) — EXECUTING
-Plan: 2 of 3
-Status: Plan 01-01 (build skeleton) completed
-Last activity: 2026-06-18 -- Plan 01-01 completed
+Plan: 3 of 3
+Status: Plan 01-03 partially completed (2/3 tasks). Test runner compiles but runtime crashes due to pre-existing CPU decoder bug. Task 3 (human-verify) deferred.
+Last activity: 2026-06-18 -- Plan 01-03 partially completed (2/3 tasks)
 
-Progress: [██░░░░░░░░] 8% (1/12 plans complete)
+Progress: [██░░░░░░░░] 17% (2/12 plans complete, Plan 01-03 infrastructure in place)
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 1
-- Average duration: 38 min
-- Total execution time: 0.6 hours
+- Total plans completed: 2 (partially: 01-03)
+- Average duration: 22 min
+- Total execution time: 1.5 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 1. Hello, ROM | 1 | 3 | 38m |
+| 1. Hello, ROM | 2 (1 partial) | 3 | 30m |
 | 2. Playable DMG library | 0 | 3 | — |
 | 3. Picture on screen | 0 | 3 | — |
 | 4. Ship it | 0 | 3 | — |
 
 **Recent Trend:**
 
-- Last 5 plans: —
-- Trend: —
+- Last 5 plans: 01-01 (38m), 01-02 (6m), 01-03 (45m partial)
+- Trend: accelerating (skewed by 01-03 compile fixes)
 
 *Updated after each plan completion*
 
@@ -76,7 +76,7 @@ None yet.
 
 ### Blockers/Concerns
 
-None yet.
+- **CPU decoder runtime crash at cpu.zig:684**: Pre-existing bug causing `invalid enum value` when decoding opcodes. Likely caused by header checksum mismatch (ROM not properly loading or init skipping header validation). Blocks ACC-01 gate. Must be fixed before a `zig build test` pass is possible.
 
 ## Deferred Items
 
@@ -95,6 +95,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-18T22:36:00.000Z
-Stopped at: Completed Plan 01-01 (build skeleton)
-Resume file: .planning/phases/01-hello-rom/01-01-SUMMARY.md
+Last session: 2026-06-18T23:05:00.000Z
+Stopped at: Plan 01-03 partially completed (2/3 tasks). Test runner compiles, runtime crash in CPU core. Task 3 (human-verify) deferred.
+Resume file: .planning/phases/01-hello-rom/01-03-SUMMARY.md

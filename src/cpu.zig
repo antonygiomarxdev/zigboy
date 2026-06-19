@@ -1,4 +1,5 @@
 const std = @import("std");
+const addr = @import("addr.zig");
 const Bus = @import("bus.zig").Bus;
 
 // ── Flag Register ────────────────────────────────────────────────────
@@ -9,6 +10,11 @@ pub const FlagRegister = packed struct {
     half_carry: u1,
     subtract: u1,
     zero: u1,
+
+    pub fn setZero(self: *FlagRegister, v: bool) void  { self.zero = @intFromBool(v); }
+    pub fn setSub(self: *FlagRegister, v: bool) void   { self.subtract = @intFromBool(v); }
+    pub fn setHalf(self: *FlagRegister, v: bool) void  { self.half_carry = @intFromBool(v); }
+    pub fn setCarry(self: *FlagRegister, v: bool) void { self.carry = @intFromBool(v); }
 };
 
 comptime {
@@ -30,12 +36,12 @@ pub const Registers = packed struct {
     pc: u16,
 
     pub fn getAf(self: *const Registers) u16 {
-        return (@as(u16, self.a) << 8) | @as(u16, self.f & 0xF0);
+        return (@as(u16, self.a) << 8) | @as(u16, self.f & addr.FLAG_MASK);
     }
 
     pub fn setAf(self: *Registers, value: u16) void {
         self.a = @truncate(value >> 8);
-        self.f = @as(u8, @truncate(value)) & 0xF0;
+        self.f = @as(u8, @truncate(value)) & addr.FLAG_MASK;
     }
 
     pub fn getBc(self: *const Registers) u16 {
@@ -70,7 +76,7 @@ pub const Registers = packed struct {
     }
 
     pub fn setFlags(self: *Registers, flags: FlagRegister) void {
-        self.f = @as(u8, @bitCast(flags)) & 0xF0;
+        self.f = @as(u8, @bitCast(flags)) & addr.FLAG_MASK;
     }
 };
 
@@ -388,7 +394,7 @@ pub const cb_table: [256]OpcodeEntry = blk: {
     @setEvalBranchQuota(10000);
     var table: [256]OpcodeEntry = undefined;
     for (&table, 0..) |*entry, i| {
-        const is_hl = (i & 0x07) == 0x06;
+        const is_hl = (i & addr.REG_MASK) == addr.REG_HL;
         const mcycles: u4 = if (is_hl) 4 else 2;
         entry.* = .{ .tag = .nop, .length = 2, .mcycles_taken = mcycles, .mcycles_not_taken = mcycles };
     }
@@ -410,16 +416,16 @@ pub const Cpu = struct {
     pub fn init(bus: *Bus) Cpu {
         return Cpu{
             .regs = .{
-                .a = 0x01,
-                .f = 0xB0,
-                .b = 0x00,
-                .c = 0x13,
-                .d = 0x00,
-                .e = 0xD8,
-                .h = 0x01,
-                .l = 0x4D,
-                .sp = 0xFFFE,
-                .pc = 0x0100,
+                .a = addr.A_RESET,
+                .f = addr.F_RESET,
+                .b = addr.B_RESET,
+                .c = addr.C_RESET,
+                .d = addr.D_RESET,
+                .e = addr.E_RESET,
+                .h = addr.H_RESET,
+                .l = addr.L_RESET,
+                .sp = addr.SP_RESET,
+                .pc = addr.PC_RESET,
             },
             .ime = false,
             .ime_next = false,
@@ -479,9 +485,9 @@ pub const Cpu = struct {
 
         // HALT handling — must check before general execution
         if (entry.tag == .halt) {
-            const ie = self.bus.read8(0xFFFF);
+            const ie = self.bus.read8(addr.IE_ADDR);
             const intf = self.bus.readIF();
-            if ((ie & intf & 0x1F) != 0 and !self.ime) {
+            if ((ie & intf & addr.INTERRUPT_MASK) != 0 and !self.ime) {
                 self.halt_bug = true;
             } else {
                 self.halted = true;
@@ -490,7 +496,7 @@ pub const Cpu = struct {
 
         if (entry.tag == .ret_cond or entry.tag == .jp_cond or entry.tag == .call_cond or entry.tag == .jr_cond) {
             const opcode = self.bus.read8(self.regs.pc - 1);
-            const cond: Cond = @enumFromInt((opcode >> 3) & 0x03);
+            const cond: Cond = @enumFromInt((opcode >> 3) & addr.COND_MASK);
             const condition_met = self.checkCondition(cond);
             if (!condition_met) {
                 actual_mcycles = entry.mcycles_not_taken;
@@ -517,6 +523,10 @@ pub const Cpu = struct {
         self.stepInstruction();
     }
 
+    pub fn getPc(self: *const Cpu) u16 {
+        return self.regs.pc;
+    }
+
     fn checkCondition(self: *Cpu, cond: Cond) bool {
         const flags = self.regs.getFlags();
         return switch (cond) {
@@ -536,9 +546,9 @@ pub const Cpu = struct {
     }
 
     pub fn handleInterrupts(self: *Cpu) void {
-        const ie = self.bus.read8(0xFFFF);
+        const ie = self.bus.read8(addr.IE_ADDR);
         var intf = self.bus.readIF();
-        const pending = ie & intf & 0x1F;
+        const pending = ie & intf & addr.INTERRUPT_MASK;
         if (pending == 0) return;
 
         const bit = @ctz(pending);
@@ -546,12 +556,12 @@ pub const Cpu = struct {
         self.ime_next = false;
         self.halted = false;
 
-        const addr: u16 = switch (bit) {
-            0 => 0x40, // VBlank
-            1 => 0x48, // STAT
-            2 => 0x50, // Timer
-            3 => 0x58, // Serial
-            4 => 0x60, // Joypad
+        const vector: u16 = switch (bit) {
+            0 => addr.VEC_VBLANK,
+            1 => addr.VEC_STAT,
+            2 => addr.VEC_TIMER,
+            3 => addr.VEC_SERIAL,
+            4 => addr.VEC_JOYPAD,
             else => unreachable,
         };
 
@@ -564,7 +574,7 @@ pub const Cpu = struct {
         intf &= ~(@as(u8, 1) << @intCast(bit));
         self.bus.writeIF(intf);
 
-        self.regs.pc = addr;
+        self.regs.pc = vector;
     }
 
     fn execute(self: *Cpu, tag: InstTag) void {
@@ -607,23 +617,23 @@ pub const Cpu = struct {
                 regs.pc +%= 1;
                 const hi = self.bus.read8(regs.pc);
                 regs.pc +%= 1;
-                const addr = (@as(u16, hi) << 8) | lo;
+                const abs_addr = (@as(u16, hi) << 8) | lo;
                 regs.sp -%= 2;
                 self.bus.write8(regs.sp, @truncate(regs.pc & 0xFF));
                 self.bus.write8(regs.sp + 1, @truncate(regs.pc >> 8));
-                regs.pc = addr;
+                regs.pc = abs_addr;
             },
             .rst_vec => {
                 const vec_byte = self.bus.read8(regs.pc - 1);
                 const vec: u16 = switch (vec_byte) {
-                    0xC7 => 0x00,
-                    0xCF => 0x08,
-                    0xD7 => 0x10,
-                    0xDF => 0x18,
-                    0xE7 => 0x20,
-                    0xEF => 0x28,
-                    0xF7 => 0x30,
-                    0xFF => 0x38,
+                    0xC7 => addr.RST_00,
+                    0xCF => addr.RST_08,
+                    0xD7 => addr.RST_10,
+                    0xDF => addr.RST_18,
+                    0xE7 => addr.RST_20,
+                    0xEF => addr.RST_28,
+                    0xF7 => addr.RST_30,
+                    0xFF => addr.RST_38,
                     else => unreachable,
                 };
                 regs.sp -%= 2;
@@ -633,7 +643,7 @@ pub const Cpu = struct {
             },
             .push_r16 => {
                 const opcode = self.bus.read8(regs.pc - 1);
-                const pair: R16Stack = @enumFromInt((opcode >> 4) & 0x03);
+                const pair: R16Stack = @enumFromInt((opcode >> 4) & addr.PAIR_MASK);
                 const value: u16 = switch (pair) {
                     .bc => regs.getBc(),
                     .de => regs.getDe(),
@@ -646,7 +656,7 @@ pub const Cpu = struct {
             },
             .pop_r16 => {
                 const opcode = self.bus.read8(regs.pc - 1);
-                const pair: R16Stack = @enumFromInt((opcode >> 4) & 0x03);
+                const pair: R16Stack = @enumFromInt((opcode >> 4) & addr.PAIR_MASK);
                 const lo = self.bus.read8(regs.sp);
                 const hi = self.bus.read8(regs.sp + 1);
                 regs.sp +%= 2;
@@ -660,7 +670,7 @@ pub const Cpu = struct {
             },
             .ld_r16_imm16 => {
                 const opcode = self.bus.read8(regs.pc - 1);
-                const pair: R16Load = @enumFromInt((opcode >> 4) & 0x03);
+                const pair: R16Load = @enumFromInt((opcode >> 4) & addr.PAIR_MASK);
                 const lo = self.bus.read8(regs.pc);
                 regs.pc +%= 1;
                 const hi = self.bus.read8(regs.pc);
@@ -677,51 +687,49 @@ pub const Cpu = struct {
                 const opcode = self.bus.read8(regs.pc - 1);
                 const val = self.bus.read8(regs.pc);
                 regs.pc +%= 1;
-                if (opcode == 0x36) {
-                    // LD (HL), imm8
+                if (opcode == addr.OP_LD_HL_IMM8) {
                     self.bus.write8(regs.getHl(), val);
                 } else {
-                    const r8: R8 = @enumFromInt(opcode & 0x07);
-                    setR8Value(regs, r8, val);
+                    const r8_idx_imm: u3 = @truncate((opcode >> 3) & addr.REG_MASK);
+                    const r8_imm: R8 = @enumFromInt(r8_idx_imm);
+                    setR8Value(regs, r8_imm, val);
                 }
             },
             .ld_r8_r8 => {
                 const opcode = self.bus.read8(regs.pc - 1);
-                const dst: u3 = @truncate((opcode >> 3) & 0x07);
-                const src: u3 = @truncate(opcode & 0x07);
-                if (dst == 0x06) {
-                    // LD (HL), src
-                    const val = getR8Value(regs, @enumFromInt(src), self.bus);
+                const dst_idx: u3 = @truncate((opcode >> 3) & addr.REG_MASK);
+                const src_idx: u3 = @truncate(opcode & addr.REG_MASK);
+                if (dst_idx == addr.REG_HL) {
+                    const val = getR8Value(regs, @enumFromInt(src_idx), self.bus);
                     self.bus.write8(regs.getHl(), val);
-                } else if (src == 0x06) {
-                    // LD dst, (HL)
+                } else if (src_idx == addr.REG_HL) {
                     const val = self.bus.read8(regs.getHl());
-                    setR8Value(regs, @enumFromInt(dst), val);
+                    setR8Value(regs, @enumFromInt(dst_idx), val);
                 } else {
-                    const val = getR8Value(regs, @enumFromInt(src), self.bus);
-                    setR8Value(regs, @enumFromInt(dst), val);
+                    const val = getR8Value(regs, @enumFromInt(src_idx), self.bus);
+                    setR8Value(regs, @enumFromInt(dst_idx), val);
                 }
             },
             .ld_r16_a => {
                 const opcode = self.bus.read8(regs.pc - 1);
-                const addr: u16 = switch (opcode) {
-                    0x02 => regs.getBc(),
-                    0x12 => regs.getDe(),
+                const target: u16 = switch (opcode) {
+                    addr.OP_LD_BC_A => regs.getBc(),
+                    addr.OP_LD_DE_A => regs.getDe(),
                     else => unreachable,
                 };
-                self.bus.write8(addr, regs.a);
+                self.bus.write8(target, regs.a);
             },
             .ld_a_r16 => {
                 const opcode = self.bus.read8(regs.pc - 1);
                 switch (opcode) {
-                    0x0A => regs.a = self.bus.read8(regs.getBc()),
-                    0x1A => regs.a = self.bus.read8(regs.getDe()),
-                    0x2A => {
+                    addr.OP_LD_A_BC => regs.a = self.bus.read8(regs.getBc()),
+                    addr.OP_LD_A_DE => regs.a = self.bus.read8(regs.getDe()),
+                    addr.OP_LD_A_HLI => {
                         const hl = regs.getHl();
                         regs.a = self.bus.read8(hl);
                         regs.setHl(hl +% 1);
                     },
-                    0x3A => {
+                    addr.OP_LD_A_HLD => {
                         const hl = regs.getHl();
                         regs.a = self.bus.read8(hl);
                         regs.setHl(hl -% 1);
@@ -744,30 +752,28 @@ pub const Cpu = struct {
                 regs.pc +%= 1;
                 const hi = self.bus.read8(regs.pc);
                 regs.pc +%= 1;
-                const addr = (@as(u16, hi) << 8) | lo;
-                regs.a = self.bus.read8(addr);
+                const abs_addr = (@as(u16, hi) << 8) | lo;
+                regs.a = self.bus.read8(abs_addr);
             },
             .ld_imm16_a => {
                 const opcode = self.bus.read8(regs.pc - 1);
                 const prev_pc = regs.pc;
-                _ = prev_pc; // PC was already advanced past opcode by fetchDecode
+                _ = prev_pc;
                 const lo = self.bus.read8(regs.pc);
                 regs.pc +%= 1;
                 const hi = self.bus.read8(regs.pc);
                 regs.pc +%= 1;
-                const addr = (@as(u16, hi) << 8) | lo;
-                if (opcode == 0x08) {
-                    // LD (imm16), SP — 5 M-cycles
-                    self.bus.write8(addr, @truncate(regs.sp & 0xFF));
-                    self.bus.write8(addr + 1, @truncate(regs.sp >> 8));
+                const abs_addr = (@as(u16, hi) << 8) | lo;
+                if (opcode == addr.OP_LD_IMM16_SP) {
+                    self.bus.write8(abs_addr, @truncate(regs.sp & 0xFF));
+                    self.bus.write8(abs_addr + 1, @truncate(regs.sp >> 8));
                 } else {
-                    // 0xEA — LD (imm16), A — 4 M-cycles
-                    self.bus.write8(addr, regs.a);
+                    self.bus.write8(abs_addr, regs.a);
                 }
             },
             .inc_r16 => {
                 const opcode = self.bus.read8(regs.pc - 1);
-                const pair: R16Load = @enumFromInt((opcode >> 4) & 0x03);
+                const pair: R16Load = @enumFromInt((opcode >> 4) & addr.PAIR_MASK);
                 switch (pair) {
                     .bc => regs.setBc(regs.getBc() +% 1),
                     .de => regs.setDe(regs.getDe() +% 1),
@@ -777,7 +783,7 @@ pub const Cpu = struct {
             },
             .dec_r16 => {
                 const opcode = self.bus.read8(regs.pc - 1);
-                const pair: R16Load = @enumFromInt((opcode >> 4) & 0x03);
+                const pair: R16Load = @enumFromInt((opcode >> 4) & addr.PAIR_MASK);
                 switch (pair) {
                     .bc => regs.setBc(regs.getBc() -% 1),
                     .de => regs.setDe(regs.getDe() -% 1),
@@ -787,51 +793,53 @@ pub const Cpu = struct {
             },
             .inc_r8 => {
                 const opcode = self.bus.read8(regs.pc - 1);
-                const r8: R8 = @enumFromInt(opcode & 0x07);
-                if (@intFromEnum(r8) == 0x06) {
+                const r8_idx_inc: u3 = @truncate((opcode >> 3) & addr.REG_MASK);
+                if (r8_idx_inc == addr.REG_HL) {
                     // INC (HL)
                     const hl = regs.getHl();
                     const val = self.bus.read8(hl);
                     const result = val +% 1;
                     self.bus.write8(hl, result);
                     var flags = regs.getFlags();
-                    flags.zero = if (result == 0) 1 else 0;
-                    flags.subtract = 0;
-                    flags.half_carry = if ((val & 0x0F) + 1 > 0x0F) 1 else 0;
+                    flags.setZero(result == 0);
+                    flags.setSub(false);
+                    flags.setHalf((val & addr.LOW_4_BITS) + 1 > addr.LOW_4_BITS);
                     regs.setFlags(flags);
                 } else {
-                    const val = getR8Value(regs, r8, self.bus);
+                    const r8_inc: R8 = @enumFromInt(r8_idx_inc);
+                    const val = getR8Value(regs, r8_inc, self.bus);
                     const result = val +% 1;
-                    setR8Value(regs, r8, result);
+                    setR8Value(regs, r8_inc, result);
                     var flags = regs.getFlags();
-                    flags.zero = if (result == 0) 1 else 0;
-                    flags.subtract = 0;
-                    flags.half_carry = if ((val & 0x0F) + 1 > 0x0F) 1 else 0;
+                    flags.setZero(result == 0);
+                    flags.setSub(false);
+                    flags.setHalf((val & addr.LOW_4_BITS) + 1 > addr.LOW_4_BITS);
                     regs.setFlags(flags);
                 }
             },
             .dec_r8 => {
                 const opcode = self.bus.read8(regs.pc - 1);
-                const r8: R8 = @enumFromInt(opcode & 0x07);
-                if (@intFromEnum(r8) == 0x06) {
+                const r8_idx_dec: u3 = @truncate((opcode >> 3) & addr.REG_MASK);
+                if (r8_idx_dec == addr.REG_HL) {
                     // DEC (HL)
                     const hl = regs.getHl();
                     const val = self.bus.read8(hl);
                     const result = val -% 1;
                     self.bus.write8(hl, result);
                     var flags = regs.getFlags();
-                    flags.zero = if (result == 0) 1 else 0;
-                    flags.subtract = 1;
-                    flags.half_carry = if ((val & 0x0F) == 0) 1 else 0;
+                    flags.setZero(result == 0);
+                    flags.setSub(true);
+                    flags.setHalf((val & addr.LOW_4_BITS) == 0);
                     regs.setFlags(flags);
                 } else {
-                    const val = getR8Value(regs, r8, self.bus);
+                    const r8_dec: R8 = @enumFromInt(r8_idx_dec);
+                    const val = getR8Value(regs, r8_dec, self.bus);
                     const result = val -% 1;
-                    setR8Value(regs, r8, result);
+                    setR8Value(regs, r8_dec, result);
                     var flags = regs.getFlags();
-                    flags.zero = if (result == 0) 1 else 0;
-                    flags.subtract = 1;
-                    flags.half_carry = if ((val & 0x0F) == 0) 1 else 0;
+                    flags.setZero(result == 0);
+                    flags.setSub(true);
+                    flags.setHalf((val & addr.LOW_4_BITS) == 0);
                     regs.setFlags(flags);
                 }
             },
@@ -841,9 +849,9 @@ pub const Cpu = struct {
                 const result = val +% 1;
                 self.bus.write8(hl, result);
                 var flags = regs.getFlags();
-                flags.zero = if (result == 0) 1 else 0;
-                flags.subtract = 0;
-                flags.half_carry = if ((val & 0x0F) + 1 > 0x0F) 1 else 0;
+                flags.setZero(result == 0);
+                flags.setSub(false);
+                flags.setHalf((val & addr.LOW_4_BITS) + 1 > addr.LOW_4_BITS);
                 regs.setFlags(flags);
             },
             .dec_hl => {
@@ -852,9 +860,9 @@ pub const Cpu = struct {
                 const result = val -% 1;
                 self.bus.write8(hl, result);
                 var flags = regs.getFlags();
-                flags.zero = if (result == 0) 1 else 0;
-                flags.subtract = 1;
-                flags.half_carry = if ((val & 0x0F) == 0) 1 else 0;
+                flags.setZero(result == 0);
+                flags.setSub(true);
+                flags.setHalf((val & addr.LOW_4_BITS) == 0);
                 regs.setFlags(flags);
             },
             .add_a_r8 => { self.execAluR8(.add, false); },
@@ -890,10 +898,10 @@ pub const Cpu = struct {
                 regs.pc +%= 1;
                 regs.a &= val;
                 var flags = regs.getFlags();
-                flags.zero = if (regs.a == 0) 1 else 0;
-                flags.subtract = 0;
-                flags.half_carry = 1;
-                flags.carry = 0;
+                flags.setZero(regs.a == 0);
+                flags.setSub(false);
+                flags.setHalf(true);
+                flags.setCarry(false);
                 regs.setFlags(flags);
             },
             .xor_a_imm8 => {
@@ -901,10 +909,10 @@ pub const Cpu = struct {
                 regs.pc +%= 1;
                 regs.a ^= val;
                 var flags = regs.getFlags();
-                flags.zero = if (regs.a == 0) 1 else 0;
-                flags.subtract = 0;
-                flags.half_carry = 0;
-                flags.carry = 0;
+                flags.setZero(regs.a == 0);
+                flags.setSub(false);
+                flags.setHalf(false);
+                flags.setCarry(false);
                 regs.setFlags(flags);
             },
             .or_a_imm8 => {
@@ -912,10 +920,10 @@ pub const Cpu = struct {
                 regs.pc +%= 1;
                 regs.a |= val;
                 var flags = regs.getFlags();
-                flags.zero = if (regs.a == 0) 1 else 0;
-                flags.subtract = 0;
-                flags.half_carry = 0;
-                flags.carry = 0;
+                flags.setZero(regs.a == 0);
+                flags.setSub(false);
+                flags.setHalf(false);
+                flags.setCarry(false);
                 regs.setFlags(flags);
             },
             .cp_a_imm8 => {
@@ -925,7 +933,7 @@ pub const Cpu = struct {
             },
             .add_hl_r16 => {
                 const opcode = self.bus.read8(regs.pc - 1);
-                const pair: R16Load = @enumFromInt((opcode >> 4) & 0x03);
+                const pair: R16Load = @enumFromInt((opcode >> 4) & addr.PAIR_MASK);
                 const hl = regs.getHl();
                 const add_val: u16 = switch (pair) {
                     .bc => regs.getBc(),
@@ -935,8 +943,8 @@ pub const Cpu = struct {
                 };
                 const result = @addWithOverflow(hl, add_val);
                 var flags = regs.getFlags();
-                flags.subtract = 0;
-                flags.half_carry = if (((hl & 0x0FFF) + (add_val & 0x0FFF)) > 0x0FFF) 1 else 0;
+                flags.setSub(false);
+                flags.setHalf(((hl & addr.LOW_12_BITS) + (add_val & addr.LOW_12_BITS)) > addr.LOW_12_BITS);
                 flags.carry = @intCast(result[1]);
                 regs.setHl(result[0]);
                 regs.setFlags(flags);
@@ -947,10 +955,10 @@ pub const Cpu = struct {
                 const signed_val = @as(i16, @as(i8, @bitCast(val)));
                 const result = @addWithOverflow(regs.sp, @as(u16, @bitCast(signed_val)));
                 var flags = regs.getFlags();
-                flags.zero = 0;
-                flags.subtract = 0;
-                flags.half_carry = if ((regs.sp & 0x0F) + (@as(u16, @bitCast(signed_val)) & 0x0F) > 0x0F) 1 else 0;
-                flags.carry = if ((regs.sp & 0xFF) + (@as(u16, @bitCast(signed_val)) & 0xFF) > 0xFF) 1 else 0;
+                flags.setZero(false);
+                flags.setSub(false);
+                flags.setHalf((regs.sp & addr.LOW_4_BITS) + (@as(u16, @bitCast(signed_val)) & addr.LOW_4_BITS) > addr.LOW_4_BITS);
+                flags.setCarry((regs.sp & 0xFF) + (@as(u16, @bitCast(signed_val)) & 0xFF) > 0xFF);
                 regs.sp = result[0];
                 regs.setFlags(flags);
             },
@@ -959,11 +967,11 @@ pub const Cpu = struct {
                 const flags = regs.getFlags();
                 var adjust: u8 = 0;
                 if (flags.subtract == 0) {
-                    if (flags.half_carry == 1 or (a & 0x0F) > 0x09) adjust |= 0x06;
-                    if (flags.carry == 1 or a > 0x99) { adjust |= 0x60; }
+                    if (flags.half_carry == 1 or (a & addr.LOW_4_BITS) > 0x09) adjust |= addr.DAA_ADJUST_LO;
+                    if (flags.carry == 1 or a > addr.DAA_MAX_A) adjust |= addr.DAA_ADJUST_HI;
                 } else {
-                    if (flags.half_carry == 1) adjust |= 0x06;
-                    if (flags.carry == 1) adjust |= 0x60;
+                    if (flags.half_carry == 1) adjust |= addr.DAA_ADJUST_LO;
+                    if (flags.carry == 1) adjust |= addr.DAA_ADJUST_HI;
                 }
                 if (flags.subtract == 1) {
                     a -%= adjust;
@@ -971,94 +979,94 @@ pub const Cpu = struct {
                     a +%= adjust;
                 }
                 var new_flags = regs.getFlags();
-                new_flags.zero = if (a == 0) 1 else 0;
-                new_flags.half_carry = 0;
-                if (flags.carry == 1 or adjust >= 0x60) new_flags.carry = 1;
+                new_flags.setZero(a == 0);
+                new_flags.setHalf(false);
+                if (flags.carry == 1 or adjust >= addr.DAA_ADJUST_HI) new_flags.setCarry(true);
                 regs.a = a;
                 regs.setFlags(new_flags);
             },
             .cpl => {
                 regs.a = ~regs.a;
                 var flags = regs.getFlags();
-                flags.subtract = 1;
-                flags.half_carry = 1;
+                flags.setSub(true);
+                flags.setHalf(true);
                 regs.setFlags(flags);
             },
             .scf => {
                 var flags = regs.getFlags();
-                flags.subtract = 0;
-                flags.half_carry = 0;
-                flags.carry = 1;
+                flags.setSub(false);
+                flags.setHalf(false);
+                flags.setCarry(true);
                 regs.setFlags(flags);
             },
             .ccf => {
                 var flags = regs.getFlags();
-                flags.subtract = 0;
-                flags.half_carry = 0;
-                flags.carry = if (flags.carry == 1) 0 else 1;
+                flags.setSub(false);
+                flags.setHalf(false);
+                flags.setCarry(flags.carry == 0);
                 regs.setFlags(flags);
             },
             .rlca => {
-                const carry = (regs.a >> 7) & 1;
-                regs.a = (regs.a << 1) | @as(u8, carry);
+                const carry_val = (regs.a >> 7) & 1;
+                regs.a = (regs.a << 1) | @as(u8, carry_val);
                 var flags = regs.getFlags();
-                flags.zero = 0;
-                flags.subtract = 0;
-                flags.half_carry = 0;
-                flags.carry = @intCast(carry);
+                flags.setZero(false);
+                flags.setSub(false);
+                flags.setHalf(false);
+                flags.setCarry(carry_val == 1);
                 regs.setFlags(flags);
             },
             .rrca => {
-                const carry = regs.a & 1;
-                regs.a = (regs.a >> 1) | @as(u8, carry << 7);
+                const carry_val = regs.a & 1;
+                regs.a = (regs.a >> 1) | @as(u8, carry_val << 7);
                 var flags = regs.getFlags();
-                flags.zero = 0;
-                flags.subtract = 0;
-                flags.half_carry = 0;
-                flags.carry = @intCast(carry);
+                flags.setZero(false);
+                flags.setSub(false);
+                flags.setHalf(false);
+                flags.setCarry(carry_val == 1);
                 regs.setFlags(flags);
             },
             .rla => {
                 const old_carry = regs.getFlags().carry;
-                const new_carry = (regs.a >> 7) & 1;
+                const new_carry_val = (regs.a >> 7) & 1;
                 regs.a = (regs.a << 1) | old_carry;
                 var flags = regs.getFlags();
-                flags.zero = 0;
-                flags.subtract = 0;
-                flags.half_carry = 0;
-                flags.carry = @intCast(new_carry);
+                flags.setZero(false);
+                flags.setSub(false);
+                flags.setHalf(false);
+                flags.setCarry(new_carry_val == 1);
                 regs.setFlags(flags);
             },
             .rra => {
                 const old_carry = regs.getFlags().carry;
-                const new_carry = regs.a & 1;
+                const new_carry_val = regs.a & 1;
                 regs.a = (regs.a >> 1) | (@as(u8, old_carry) << 7);
                 var flags = regs.getFlags();
-                flags.zero = 0;
-                flags.subtract = 0;
-                flags.half_carry = 0;
-                flags.carry = @intCast(new_carry);
+                flags.setZero(false);
+                flags.setSub(false);
+                flags.setHalf(false);
+                flags.setCarry(new_carry_val == 1);
                 regs.setFlags(flags);
             },
             .ld_ff_c_a => {
-                const addr = 0xFF00 | @as(u16, regs.c);
-                self.bus.write8(addr, regs.a);
+                const io_port = addr.IO_BASE | @as(u16, regs.c);
+                self.bus.write8(io_port, regs.a);
             },
             .ld_a_ff_c => {
-                const addr = 0xFF00 | @as(u16, regs.c);
-                regs.a = self.bus.read8(addr);
+                const io_port = addr.IO_BASE | @as(u16, regs.c);
+                regs.a = self.bus.read8(io_port);
             },
             .ld_ff_imm8_a => {
                 const offset = self.bus.read8(regs.pc);
                 regs.pc +%= 1;
-                const addr = 0xFF00 | @as(u16, offset);
-                self.bus.write8(addr, regs.a);
+                const io_port = addr.IO_BASE | @as(u16, offset);
+                self.bus.write8(io_port, regs.a);
             },
             .ld_a_ff_imm8 => {
                 const offset = self.bus.read8(regs.pc);
                 regs.pc +%= 1;
-                const addr = 0xFF00 | @as(u16, offset);
-                regs.a = self.bus.read8(addr);
+                const io_port = addr.IO_BASE | @as(u16, offset);
+                regs.a = self.bus.read8(io_port);
             },
             .ld_hl_sp_rel => {
                 const val = self.bus.read8(regs.pc);
@@ -1067,10 +1075,10 @@ pub const Cpu = struct {
                 const sp = regs.sp;
                 const result = @addWithOverflow(sp, @as(u16, @bitCast(signed_val)));
                 var flags = regs.getFlags();
-                flags.zero = 0;
-                flags.subtract = 0;
-                flags.half_carry = if ((sp & 0x0F) + (@as(u16, @bitCast(signed_val)) & 0x0F) > 0x0F) 1 else 0;
-                flags.carry = if ((sp & 0xFF) + (@as(u16, @bitCast(signed_val)) & 0xFF) > 0xFF) 1 else 0;
+                flags.setZero(false);
+                flags.setSub(false);
+                flags.setHalf((sp & addr.LOW_4_BITS) + (@as(u16, @bitCast(signed_val)) & addr.LOW_4_BITS) > addr.LOW_4_BITS);
+                flags.setCarry((sp & 0xFF) + (@as(u16, @bitCast(signed_val)) & 0xFF) > 0xFF);
                 regs.setHl(result[0]);
                 regs.setFlags(flags);
             },
@@ -1109,11 +1117,11 @@ pub const Cpu = struct {
                 const hi = self.bus.read8(regs.pc);
                 regs.pc +%= 1;
                 if (condition_met) {
-                    const addr = (@as(u16, hi) << 8) | lo;
+                    const abs_addr = (@as(u16, hi) << 8) | lo;
                     regs.sp -%= 2;
                     self.bus.write8(regs.sp, @truncate(regs.pc & 0xFF));
                     self.bus.write8(regs.sp + 1, @truncate(regs.pc >> 8));
-                    regs.pc = addr;
+                    regs.pc = abs_addr;
                 }
             },
             .ret_cond => {
@@ -1131,16 +1139,16 @@ pub const Cpu = struct {
 
     fn executeCb(self: *Cpu, opcode: u8) void {
         const regs = &self.regs;
-        const bit = (opcode >> 3) & 0x07;
-        const r8_idx: u3 = @truncate(opcode & 0x07);
-        const is_hl = r8_idx == 0x06;
+        const bit = (opcode >> 3) & addr.REG_MASK;
+        const r8_idx: u3 = @truncate(opcode & addr.REG_MASK);
+        const is_hl = r8_idx == addr.REG_HL;
 
         const val = if (is_hl) self.bus.read8(regs.getHl()) else getR8Value(regs, @enumFromInt(r8_idx), self.bus);
 
-        const high_nibble = opcode >> 6;
-        switch (high_nibble) {
+        const group = opcode >> addr.CB_GROUP_SHIFT;
+        switch (group) {
             0x00, 0x01 => {
-                const sub_op = (opcode >> 3) & 0x07;
+                const sub_op = (opcode >> 3) & addr.REG_MASK;
                 const result: u8 = switch (sub_op) {
                     0 => blk: { // RLC
                         const c = @as(u1, @truncate(val >> 7));
@@ -1185,9 +1193,9 @@ pub const Cpu = struct {
                 };
 
                 var flags = regs.getFlags();
-                flags.zero = if (result == 0) 1 else 0;
-                flags.subtract = 0;
-                flags.half_carry = 0;
+                flags.setZero(result == 0);
+                flags.setSub(false);
+                flags.setHalf(false);
                 flags.carry = carry;
                 regs.setFlags(flags);
 
@@ -1201,14 +1209,14 @@ pub const Cpu = struct {
                 // BIT b, r8
                 const bit_val = (val >> @as(u3, @intCast(bit))) & 1;
                 var flags = regs.getFlags();
-                flags.zero = if (bit_val == 0) 1 else 0;
-                flags.subtract = 0;
-                flags.half_carry = 1;
+                flags.setZero(bit_val == 0);
+                flags.setSub(false);
+                flags.setHalf(true);
                 regs.setFlags(flags);
             },
             0x03 => {
                 // RES or SET
-                const is_set = (opcode & 0x40) != 0;
+                const is_set = (opcode & addr.CB_BIT_MASK) != 0;
                 const mask = @as(u8, 1) << @as(u3, @intCast(bit));
                 const result = if (is_set) val | mask else val & ~mask;
                 if (is_hl) {
@@ -1226,36 +1234,39 @@ pub const Cpu = struct {
     fn execAluR8(self: *Cpu, op: AluOp, carry: bool) void {
         const regs = &self.regs;
         const opcode = self.bus.read8(regs.pc - 1);
-        const r8: R8 = @enumFromInt(opcode & 0x07);
-        const val = getR8Value(regs, r8, self.bus);
+        const alu_r8_idx: u3 = @truncate(opcode & addr.REG_MASK);
+        const val = if (alu_r8_idx == addr.REG_HL)
+            self.bus.read8(regs.getHl())
+        else
+            getR8Value(regs, @enumFromInt(alu_r8_idx), self.bus);
         switch (op) {
             .add => execAluOp(regs, .add, val, carry),
             .sub => execAluOp(regs, .sub, val, carry),
             .alu_and => {
                 regs.a &= val;
                 var flags = regs.getFlags();
-                flags.zero = if (regs.a == 0) 1 else 0;
-                flags.subtract = 0;
-                flags.half_carry = 1;
-                flags.carry = 0;
+                flags.setZero(regs.a == 0);
+                flags.setSub(false);
+                flags.setHalf(true);
+                flags.setCarry(false);
                 regs.setFlags(flags);
             },
             .xor => {
                 regs.a ^= val;
                 var flags = regs.getFlags();
-                flags.zero = if (regs.a == 0) 1 else 0;
-                flags.subtract = 0;
-                flags.half_carry = 0;
-                flags.carry = 0;
+                flags.setZero(regs.a == 0);
+                flags.setSub(false);
+                flags.setHalf(false);
+                flags.setCarry(false);
                 regs.setFlags(flags);
             },
             .alu_or => {
                 regs.a |= val;
                 var flags = regs.getFlags();
-                flags.zero = if (regs.a == 0) 1 else 0;
-                flags.subtract = 0;
-                flags.half_carry = 0;
-                flags.carry = 0;
+                flags.setZero(regs.a == 0);
+                flags.setSub(false);
+                flags.setHalf(false);
+                flags.setCarry(false);
                 regs.setFlags(flags);
             },
             .cp => execCp(regs, val),
@@ -1298,18 +1309,18 @@ fn execAluOp(regs: *Registers, op: enum { add, sub }, val: u8, carry: bool) void
         .add => {
             const result = regs.a +% val +% carry_in;
             const full: u16 = @as(u16, regs.a) + @as(u16, val) + @as(u16, carry_in);
-            flags.zero = if (result == 0) 1 else 0;
-            flags.subtract = 0;
-            flags.half_carry = if (((regs.a & 0x0F) + (val & 0x0F) + carry_in) > 0x0F) 1 else 0;
-            flags.carry = if (full > 0xFF) 1 else 0;
+            flags.setZero(result == 0);
+            flags.setSub(false);
+            flags.setHalf(((regs.a & addr.LOW_4_BITS) + (val & addr.LOW_4_BITS) + carry_in) > addr.LOW_4_BITS);
+            flags.setCarry(full > std.math.maxInt(u8));
             regs.a = result;
         },
         .sub => {
             const result = regs.a -% val -% carry_in;
-            flags.zero = if (result == 0) 1 else 0;
-            flags.subtract = 1;
-            flags.half_carry = if ((regs.a & 0x0F) < (val & 0x0F) + carry_in) 1 else 0;
-            flags.carry = if (regs.a < val + carry_in) 1 else 0;
+            flags.setZero(result == 0);
+            flags.setSub(true);
+            flags.setHalf((regs.a & addr.LOW_4_BITS) < (val & addr.LOW_4_BITS) + carry_in);
+            flags.setCarry(regs.a < val + carry_in);
             regs.a = result;
         },
     }
@@ -1319,10 +1330,10 @@ fn execAluOp(regs: *Registers, op: enum { add, sub }, val: u8, carry: bool) void
 
 fn execCp(regs: *Registers, val: u8) void {
     var flags = regs.getFlags();
-    const result = regs.a -% val;
-    flags.zero = if (result == 0) 1 else 0;
-    flags.subtract = 1;
-    flags.half_carry = if ((regs.a & 0x0F) < (val & 0x0F)) 1 else 0;
-    flags.carry = if (regs.a < val) 1 else 0;
+    _ = regs.a -% val;
+    flags.setZero(regs.a == val);
+    flags.setSub(true);
+    flags.setHalf((regs.a & addr.LOW_4_BITS) < (val & addr.LOW_4_BITS));
+    flags.setCarry(regs.a < val);
     regs.setFlags(flags);
 }

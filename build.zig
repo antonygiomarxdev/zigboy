@@ -66,15 +66,30 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run the emulator");
     run_step.dependOn(&run_cmd.step);
 
-    // Test target — headless Blargg cpu_instrs runner (no SDL3 linking needed)
-    const test_mod = b.createModule(.{
+    // Blargg cpu_instrs test
+    const blargg_mod = b.createModule(.{
         .root_source_file = b.path("tests/blargg.zig"),
         .target = target,
         .optimize = optimize,
     });
-    test_mod.addImport("emulator", emulator_mod);
-    const test_exe = b.addTest(.{ .root_module = test_mod });
-    const test_run = b.addRunArtifact(test_exe);
-    const test_step = b.step("test", "Run Blargg cpu_instrs test");
-    test_step.dependOn(&test_run.step);
+    blargg_mod.addImport("emulator", emulator_mod);
+    const blargg_test = b.addTest(.{ .root_module = blargg_mod });
+    const blargg_run = b.addRunArtifact(blargg_test);
+
+    // Serial capture test
+    const serial_mod = b.createModule(.{
+        .root_source_file = b.path("tests/serial_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    serial_mod.addImport("emulator", emulator_mod);
+    const serial_test = b.addTest(.{ .root_module = serial_mod });
+    const serial_run = b.addRunArtifact(serial_test);
+
+    const test_step = b.step("test", "Run all tests");
+    test_step.dependOn(&blargg_run.step);
+    test_step.dependOn(&serial_run.step);
+
+    const serial_step = b.step("serial", "Run serial capture test");
+    serial_step.dependOn(&serial_run.step);
 }

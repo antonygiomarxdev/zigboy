@@ -1,4 +1,5 @@
 const std = @import("std");
+const addr = @import("addr.zig");
 const RomOnly = @import("cartridge/mod.zig").RomOnly;
 
 // ── MMIO Packed Struct ───────────────────────────────────────────────
@@ -25,30 +26,34 @@ pub const MMIO = extern struct {
 
 comptime {
     std.debug.assert(@sizeOf(MMIO) == 256);
-    std.debug.assert(@offsetOf(MMIO, "JOYP") == 0x00);
-    std.debug.assert(@offsetOf(MMIO, "SB") == 0x01);
-    std.debug.assert(@offsetOf(MMIO, "SC") == 0x02);
-    std.debug.assert(@offsetOf(MMIO, "DIV") == 0x04);
-    std.debug.assert(@offsetOf(MMIO, "TIMA") == 0x05);
-    std.debug.assert(@offsetOf(MMIO, "TMA") == 0x06);
-    std.debug.assert(@offsetOf(MMIO, "TAC") == 0x07);
-    std.debug.assert(@offsetOf(MMIO, "IF") == 0x0F);
-    std.debug.assert(@offsetOf(MMIO, "BANK") == 0x50);
+    std.debug.assert(@offsetOf(MMIO, "JOYP") == addr.JOYP);
+    std.debug.assert(@offsetOf(MMIO, "SB") == addr.SB);
+    std.debug.assert(@offsetOf(MMIO, "SC") == addr.SC);
+    std.debug.assert(@offsetOf(MMIO, "DIV") == addr.DIV);
+    std.debug.assert(@offsetOf(MMIO, "TIMA") == addr.TIMA);
+    std.debug.assert(@offsetOf(MMIO, "TMA") == addr.TMA);
+    std.debug.assert(@offsetOf(MMIO, "TAC") == addr.TAC);
+    std.debug.assert(@offsetOf(MMIO, "IF") == addr.IF);
+    std.debug.assert(@offsetOf(MMIO, "BANK") == addr.BANK);
     std.debug.assert(@offsetOf(MMIO, "IE") == 0xFF);
 }
 
 // ── Bus Struct ───────────────────────────────────────────────────────
 
 pub const Bus = struct {
-    wram: [8 * 1024]u8,
-    hram: [127]u8,
-    vram_stub: [8 * 1024]u8,
-    oam_stub: [160]u8,
+    wram: [addr.WRAM_SIZE]u8,
+    hram: [addr.HRAM_SIZE]u8,
+    vram_stub: [addr.VRAM_SIZE]u8,
+    oam_stub: [addr.OAM_SIZE]u8,
     mmio: MMIO,
     cart: *RomOnly,
     serial_output: [256]u8,
     serial_index: usize,
     t_cycles: u64,
+
+    pub fn getTCycles(self: *Bus) u64 {
+        return self.t_cycles;
+    }
 
     pub fn init(cart: *RomOnly) Bus {
         var bus = Bus{
@@ -68,7 +73,7 @@ pub const Bus = struct {
         @memset(&bus.oam_stub, 0xFF);
         @memset(&bus.serial_output, 0);
         bus.mmio = .{
-            .JOYP = 0xCF,
+            .JOYP = addr.JOYP_INIT,
             .SB = 0x00,
             .SC = 0x00,
             ._pad_03 = 0x00,
@@ -77,7 +82,7 @@ pub const Bus = struct {
             .TMA = 0x00,
             .TAC = 0x00,
             ._pad_08_0E = .{0} ** 7,
-            .IF = 0xE0, // unused bits read as 1
+            .IF = addr.IF_INIT,
             ._pad_10_3F = .{0} ** 48,
             ._pad_40_4F = .{0} ** 16,
             .BANK = 0x00,
@@ -89,40 +94,40 @@ pub const Bus = struct {
         return bus;
     }
 
-    pub fn read8(self: *Bus, addr: u16) u8 {
-        self.t_cycles += 4;
-        return switch (addr >> 12) {
-            0x0...0x7 => self.cart.readRom(addr),
-            0x8...0x9 => self.vram_stub[addr - 0x8000],
-            0xA...0xB => 0xFF, // cart RAM not present (ROM-only, open-bus)
-            0xC...0xD => self.wram[addr - 0xC000],
-            0xE => self.wram[addr - 0xE000], // Echo RAM mirror
-            0xF => switch (addr) {
-                0xFE00...0xFE9F => self.oam_stub[addr - 0xFE00],
-                0xFEA0...0xFEFF => 0xFF, // unusable area, open-bus
-                0xFF00...0xFF7F => self.mmioRead(@intCast(addr & 0xFF)),
-                0xFF80...0xFFFE => self.hram[addr - 0xFF80],
-                0xFFFF => self.mmio.IE,
+    pub fn read8(self: *Bus, address: u16) u8 {
+        self.t_cycles += addr.T_CYCLES_PER_M_CYCLE;
+        return switch (address >> 12) {
+            0x0...0x7 => self.cart.readRom(address),
+            0x8...0x9 => self.vram_stub[address - addr.VRAM_BASE],
+            0xA...0xB => 0xFF,
+            0xC...0xD => self.wram[address - addr.WRAM_BASE],
+            0xE => self.wram[address - addr.ECHO_BASE],
+            0xF => switch (address) {
+                addr.OAM_BASE...addr.OAM_END - 1 => self.oam_stub[address - addr.OAM_BASE],
+                addr.UNUSABLE_BASE...addr.UNUSABLE_END - 1 => 0xFF,
+                addr.IO_BASE...addr.IO_END - 1 => self.mmioRead(@intCast(address & 0xFF)),
+                addr.HRAM_BASE...addr.HRAM_END - 1 => self.hram[address - addr.HRAM_BASE],
+                addr.IE_ADDR => self.mmio.IE,
                 else => 0xFF,
             },
             else => 0xFF,
         };
     }
 
-    pub fn write8(self: *Bus, addr: u16, val: u8) void {
-        self.t_cycles += 4;
-        switch (addr >> 12) {
-            0x0...0x7 => {}, // ROM writes silently ignored (DMG behavior)
-            0x8...0x9 => {}, // VRAM stub — writes silently ignored in Phase 1
-            0xA...0xB => {}, // Cart RAM not present (ROM-only)
-            0xC...0xD => self.wram[addr - 0xC000] = val,
-            0xE => self.wram[addr - 0xE000] = val, // Echo RAM
-            0xF => switch (addr) {
-                0xFE00...0xFE9F => {}, // OAM stub — ignored in Phase 1
-                0xFEA0...0xFEFF => {}, // Unusable area
-                0xFF00...0xFF7F => self.mmioWrite(@intCast(addr & 0xFF), val),
-                0xFF80...0xFFFE => self.hram[addr - 0xFF80] = val,
-                0xFFFF => self.mmio.IE = val,
+    pub fn write8(self: *Bus, address: u16, val: u8) void {
+        self.t_cycles += addr.T_CYCLES_PER_M_CYCLE;
+        switch (address >> 12) {
+            0x0...0x7 => {},
+            0x8...0x9 => {},
+            0xA...0xB => {},
+            0xC...0xD => self.wram[address - addr.WRAM_BASE] = val,
+            0xE => self.wram[address - addr.ECHO_BASE] = val,
+            0xF => switch (address) {
+                addr.OAM_BASE...addr.OAM_END - 1 => {},
+                addr.UNUSABLE_BASE...addr.UNUSABLE_END - 1 => {},
+                addr.IO_BASE...addr.IO_END - 1 => self.mmioWrite(@intCast(address & 0xFF), val),
+                addr.HRAM_BASE...addr.HRAM_END - 1 => self.hram[address - addr.HRAM_BASE] = val,
+                addr.IE_ADDR => self.mmio.IE = val,
                 else => {},
             },
             else => {},
@@ -130,13 +135,18 @@ pub const Bus = struct {
     }
 
     pub fn tick(self: *Bus, mcycles: u4) void {
-        self.t_cycles += @as(u64, mcycles) * 4;
+        const prev_frames = self.t_cycles / addr.T_CYCLES_PER_FRAME;
+        self.t_cycles += @as(u64, mcycles) * addr.T_CYCLES_PER_M_CYCLE;
+        const new_frames = self.t_cycles / addr.T_CYCLES_PER_FRAME;
+        if (new_frames > prev_frames) {
+            self.mmio.IF |= addr.IF_VBLANK;
+        }
     }
 
     pub fn hasInterruptRequest(self: *Bus) bool {
         const ie = self.mmio.IE;
         const intf = self.mmio.IF;
-        return (ie & intf & 0x1F) != 0;
+        return (ie & intf & addr.INTERRUPT_MASK) != 0;
     }
 
     pub fn readIF(self: *Bus) u8 {
@@ -151,6 +161,10 @@ pub const Bus = struct {
         return self.serial_output[0..self.serial_index];
     }
 
+    pub fn getSerialIndex(self: *Bus) usize {
+        return self.serial_index;
+    }
+
     pub fn getFrameBuffer(self: *Bus) *const [160 * 144]u8 {
         // Phase 1 stub — returns zeroed buffer
         // In Phase 3 this will point to the PPU framebuffer
@@ -161,58 +175,41 @@ pub const Bus = struct {
     fn mmioRead(self: *Bus, offset: u8) u8 {
         const bytes = std.mem.asBytes(&self.mmio);
         return switch (offset) {
-            0x00 => bytes[offset] & 0x0F, // JOYP: only low 4 bits valid
-            0x01 => bytes[offset], // SB
-            0x02 => bytes[offset], // SC
-            0x04 => 0x00, // DIV: static stub per D-15
-            0x05 => 0x00, // TIMA: static stub
-            0x06 => 0x00, // TMA: static stub
-            0x07 => 0x00, // TAC: static stub
-            0x0F => bytes[offset] | 0xE0, // IF: high 3 bits read as 1
+            addr.JOYP => bytes[offset] & addr.LOW_NIBBLE_MASK,
+            addr.SB => bytes[offset],
+            addr.SC => bytes[offset],
+            addr.DIV => 0x00,
+            addr.TIMA => 0x00,
+            addr.TMA => 0x00,
+            addr.TAC => 0x00,
+            addr.IF => bytes[offset] | addr.IF_UNUSED_BITS,
             else => bytes[offset],
         };
     }
 
     fn mmioWrite(self: *Bus, offset: u8, val: u8) void {
+        const bytes = std.mem.asBytes(&self.mmio);
         switch (offset) {
-            0x00 => {
-                // JOYP: only low bits writable
-                const bytes = std.mem.asBytes(&self.mmio);
-                bytes[0x00] = val & 0x0F;
-            },
-            0x01 => {
-                // SB — serial data. Blargg writes characters here for output.
+            addr.JOYP => bytes[offset] = val & addr.LOW_NIBBLE_MASK,
+            addr.SB => {
                 if (self.serial_index < self.serial_output.len) {
                     self.serial_output[self.serial_index] = val;
                     self.serial_index += 1;
                 }
-                const bytes = std.mem.asBytes(&self.mmio);
                 bytes[offset] = val;
             },
-            0x02 => {
-                // SC — serial control. Blargg writes 0x81 to trigger transfer.
-                const bytes = std.mem.asBytes(&self.mmio);
-                if (val & 0x81 == 0x81 and self.serial_index > 0) {
-                    // Transfer complete — serial byte already captured in SB write
-                    bytes[0x02] = 0x00; // Clear transfer flag
+            addr.SC => {
+                if ((val & addr.SC_TRANSFER) == addr.SC_TRANSFER and self.serial_index > 0) {
+                    bytes[offset] = 0x00;
                 } else {
-                    bytes[0x02] = val;
+                    bytes[offset] = val;
                 }
             },
-            0x04, 0x05, 0x06, 0x07 => {
-                // Timer stubs — writes accepted but values stay static per D-15
-                const bytes = std.mem.asBytes(&self.mmio);
+            addr.DIV, addr.TIMA, addr.TMA, addr.TAC => {
                 bytes[offset] = val;
             },
-            0x0F => {
-                // IF: only low 5 bits writable
-                const bytes = std.mem.asBytes(&self.mmio);
-                bytes[0x0F] = val & 0x1F;
-            },
-            else => {
-                const bytes = std.mem.asBytes(&self.mmio);
-                bytes[offset] = val;
-            },
+            addr.IF => bytes[addr.IF] = val & addr.INTERRUPT_MASK,
+            else => bytes[offset] = val,
         }
     }
 };

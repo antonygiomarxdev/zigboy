@@ -1,5 +1,5 @@
 const std = @import("std");
-const Emulator = @import("emulator").Emulator;
+const emu = @import("emulator");
 
 const rom_url = "https://raw.githubusercontent.com/retrio/gb-test-roms/master/cpu_instrs/cpu_instrs.gb";
 const rom_cache_path = "tests/roms/cpu_instrs.gb";
@@ -48,25 +48,35 @@ test "Blargg cpu_instrs" {
     defer allocator.free(rom_path);
 
     const cwd = std.Io.Dir.cwd();
-    const rom_bytes = cwd.readFileAlloc(io, rom_path, allocator, std.Io.Limit.limited(8 * 1024 * 1024)) catch |err| {
+    const rom_bytes = cwd.readFileAlloc(io, rom_path, allocator, std.Io.Limit.limited(emu.CART_MAX_SIZE)) catch |err| {
         std.debug.print("Failed to read ROM file '{s}': {}\n", .{ rom_path, err });
         return error.TestRomReadFailed;
     };
     defer allocator.free(rom_bytes);
 
-    var emu = try Emulator.init(allocator, rom_bytes);
-    defer emu.deinit();
+    var gameboy = try emu.Emulator.init(allocator, rom_bytes);
+    defer gameboy.deinit();
 
     // Run for ~3600 virtual frames (60 FPS × 60 seconds).
     // The Blargg cpu_instrs.gb takes ~55 emulated seconds on real DMG.
     // On a modern CPU this completes in a few wall-clock seconds.
-    emu.runForFrames(3600);
+    // Run for ~3600 virtual frames (60 FPS × 60 seconds).
+    // The Blargg cpu_instrs.gb takes ~55 emulated seconds on real DMG.
+    // On a modern CPU this completes in a few wall-clock seconds.
+    gameboy.runForFrames(3600);
 
-    const output = emu.getSerialOutput();
+    const output = gameboy.getSerialOutput();
     const found = std.mem.indexOf(u8, output, "Passed") != null;
     if (!found) {
         const display_len = @min(output.len, @as(usize, 200));
-        std.debug.print("Serial output (first {} bytes):\n{s}\n", .{ display_len, output[0..display_len] });
+        std.debug.print("Serial output ({} bytes):\n", .{output.len});
+        const tcy = gameboy.getTCycles();
+        std.debug.print("T-cycles: {} (~{} frames)\n", .{ tcy, tcy / 70224 });
+        for (output[0..display_len]) |b| {
+            if (b >= 0x20 and b < 0x7F) { std.debug.print("{c}", .{b}); }
+            else { std.debug.print(".", .{}); }
+        }
+        std.debug.print("\n", .{});
     }
     try std.testing.expect(found);
 }
