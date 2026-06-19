@@ -276,8 +276,12 @@ fn decodeMain(opcode: u8) OpcodeEntry {
         0x3E => .{ .tag = .ld_r8_imm8, .length = 2, .mcycles_taken = 2, .mcycles_not_taken = 2 },
         0x3F => .{ .tag = .ccf, .length = 1, .mcycles_taken = 1, .mcycles_not_taken = 1 },
 
-        // 0x40-0x7F: LD r8, r8
+        // 0x40-0x7F: LD r8, r8 (with HALT at 0x76)
         0x40...0x7F => {
+            // HALT, not LD (HL), (HL)
+            if (opcode == addr.OP_HALT) {
+                return .{ .tag = .halt, .length = 1, .mcycles_taken = 1, .mcycles_not_taken = 1 };
+            }
             const dst: u4 = (opcode >> 3) & addr.REG_MASK;
             const src: u4 = opcode & addr.REG_MASK;
             const mcycles: u4 = if (dst == addr.REG_HL or src == addr.REG_HL) 2 else 1;
