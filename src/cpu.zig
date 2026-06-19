@@ -278,27 +278,27 @@ fn decodeMain(opcode: u8) OpcodeEntry {
 
         // 0x40-0x7F: LD r8, r8
         0x40...0x7F => {
-            const dst: u4 = (opcode >> 3) & 0x07;
-            const src: u4 = opcode & 0x07;
-            const mcycles: u4 = if (dst == 0x06 or src == 0x06) 2 else 1;
+            const dst: u4 = (opcode >> 3) & addr.REG_MASK;
+            const src: u4 = opcode & addr.REG_MASK;
+            const mcycles: u4 = if (dst == addr.REG_HL or src == addr.REG_HL) 2 else 1;
             return .{ .tag = .ld_r8_r8, .length = 1, .mcycles_taken = mcycles, .mcycles_not_taken = mcycles };
         },
 
         // 0x80-0xBF: ALU on A from r8
         0x80...0xBF => {
-            const alu_base: u8 = (opcode >> 3) & 0x17; // which ALU op
-            const src: u3 = @truncate(opcode & 0x07);
+            const alu_base: u8 = (opcode >> 3) & addr.ALU_OP_MASK; // which ALU op
+            const src: u3 = @truncate(opcode & addr.REG_MASK);
             _ = alu_base;
-            const mcycles: u4 = if (src == 0x06) 2 else 1;
-            const tag: InstTag = switch ((opcode >> 3) & 0x1F) {
-                0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17 => .add_a_r8,
-                0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F => .adc_a_r8,
-                0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27 => .sub_a_r8,
-                0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F => .sbc_a_r8,
-                0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37 => .and_a_r8,
-                0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F => .xor_a_r8,
-                0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07 => .or_a_r8,
-                0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F => .cp_a_r8,
+            const mcycles: u4 = if (src == addr.REG_HL) 2 else 1;
+            const tag: InstTag = switch ((opcode >> 3) & addr.ALU_GROUP_MASK) {
+                addr.ALU_GROUP_ADD...addr.ALU_GROUP_ADD + 0x07 => .add_a_r8,
+                addr.ALU_GROUP_ADC...addr.ALU_GROUP_ADC + 0x07 => .adc_a_r8,
+                addr.ALU_GROUP_SUB...addr.ALU_GROUP_SUB + 0x07 => .sub_a_r8,
+                addr.ALU_GROUP_SBC...addr.ALU_GROUP_SBC + 0x07 => .sbc_a_r8,
+                addr.ALU_GROUP_AND...addr.ALU_GROUP_AND + 0x07 => .and_a_r8,
+                addr.ALU_GROUP_XOR...addr.ALU_GROUP_XOR + 0x07 => .xor_a_r8,
+                addr.ALU_GROUP_OR...addr.ALU_GROUP_OR + 0x07 => .or_a_r8,
+                addr.ALU_GROUP_CP...addr.ALU_GROUP_CP + 0x07 => .cp_a_r8,
                 else => unreachable,
             };
             return .{ .tag = tag, .length = 1, .mcycles_taken = mcycles, .mcycles_not_taken = mcycles };
@@ -567,8 +567,8 @@ pub const Cpu = struct {
 
         // Push PC to stack
         self.regs.sp -%= 2;
-        self.bus.write8(self.regs.sp, @truncate(self.regs.pc & 0xFF));
-        self.bus.write8(self.regs.sp + 1, @truncate(self.regs.pc >> 8));
+        self.bus.write8(self.regs.sp, @truncate(self.regs.pc & addr.LOW_BYTE_MASK));
+        self.bus.write8(self.regs.sp + 1, @truncate(self.regs.pc >> addr.HIGH_BYTE_SHIFT));
 
         // Clear the interrupt flag bit
         intf &= ~(@as(u8, 1) << @intCast(bit));
@@ -619,26 +619,26 @@ pub const Cpu = struct {
                 regs.pc +%= 1;
                 const abs_addr = (@as(u16, hi) << 8) | lo;
                 regs.sp -%= 2;
-                self.bus.write8(regs.sp, @truncate(regs.pc & 0xFF));
-                self.bus.write8(regs.sp + 1, @truncate(regs.pc >> 8));
+                self.bus.write8(regs.sp, @truncate(regs.pc & addr.LOW_BYTE_MASK));
+                self.bus.write8(regs.sp + 1, @truncate(regs.pc >> addr.HIGH_BYTE_SHIFT));
                 regs.pc = abs_addr;
             },
             .rst_vec => {
                 const vec_byte = self.bus.read8(regs.pc - 1);
                 const vec: u16 = switch (vec_byte) {
-                    0xC7 => addr.RST_00,
-                    0xCF => addr.RST_08,
-                    0xD7 => addr.RST_10,
-                    0xDF => addr.RST_18,
-                    0xE7 => addr.RST_20,
-                    0xEF => addr.RST_28,
-                    0xF7 => addr.RST_30,
-                    0xFF => addr.RST_38,
+                    addr.OP_RST_00 => addr.RST_00,
+                    addr.OP_RST_08 => addr.RST_08,
+                    addr.OP_RST_10 => addr.RST_10,
+                    addr.OP_RST_18 => addr.RST_18,
+                    addr.OP_RST_20 => addr.RST_20,
+                    addr.OP_RST_28 => addr.RST_28,
+                    addr.OP_RST_30 => addr.RST_30,
+                    addr.OP_RST_38 => addr.RST_38,
                     else => unreachable,
                 };
                 regs.sp -%= 2;
-                self.bus.write8(regs.sp, @truncate(regs.pc & 0xFF));
-                self.bus.write8(regs.sp + 1, @truncate(regs.pc >> 8));
+                self.bus.write8(regs.sp, @truncate(regs.pc & addr.LOW_BYTE_MASK));
+                self.bus.write8(regs.sp + 1, @truncate(regs.pc >> addr.HIGH_BYTE_SHIFT));
                 regs.pc = vec;
             },
             .push_r16 => {
@@ -958,7 +958,7 @@ pub const Cpu = struct {
                 flags.setZero(false);
                 flags.setSub(false);
                 flags.setHalf((regs.sp & addr.LOW_4_BITS) + (@as(u16, @bitCast(signed_val)) & addr.LOW_4_BITS) > addr.LOW_4_BITS);
-                flags.setCarry((regs.sp & 0xFF) + (@as(u16, @bitCast(signed_val)) & 0xFF) > 0xFF);
+                flags.setCarry((regs.sp & addr.LOW_BYTE_MASK) + (@as(u16, @bitCast(signed_val)) & addr.LOW_BYTE_MASK) > addr.LOW_BYTE_MASK);
                 regs.sp = result[0];
                 regs.setFlags(flags);
             },
@@ -967,7 +967,7 @@ pub const Cpu = struct {
                 const flags = regs.getFlags();
                 var adjust: u8 = 0;
                 if (flags.subtract == 0) {
-                    if (flags.half_carry == 1 or (a & addr.LOW_4_BITS) > 0x09) adjust |= addr.DAA_ADJUST_LO;
+                    if (flags.half_carry == 1 or (a & addr.LOW_4_BITS) > addr.DAA_BCD_MAX_LO) adjust |= addr.DAA_ADJUST_LO;
                     if (flags.carry == 1 or a > addr.DAA_MAX_A) adjust |= addr.DAA_ADJUST_HI;
                 } else {
                     if (flags.half_carry == 1) adjust |= addr.DAA_ADJUST_LO;
@@ -1007,7 +1007,7 @@ pub const Cpu = struct {
                 regs.setFlags(flags);
             },
             .rlca => {
-                const carry_val = (regs.a >> 7) & 1;
+                const carry_val = (regs.a >> addr.BIT_7_SHIFT) & 1;
                 regs.a = (regs.a << 1) | @as(u8, carry_val);
                 var flags = regs.getFlags();
                 flags.setZero(false);
@@ -1018,7 +1018,7 @@ pub const Cpu = struct {
             },
             .rrca => {
                 const carry_val = regs.a & 1;
-                regs.a = (regs.a >> 1) | @as(u8, carry_val << 7);
+                regs.a = (regs.a >> 1) | @as(u8, carry_val << addr.BIT_7_SHIFT);
                 var flags = regs.getFlags();
                 flags.setZero(false);
                 flags.setSub(false);
@@ -1028,7 +1028,7 @@ pub const Cpu = struct {
             },
             .rla => {
                 const old_carry = regs.getFlags().carry;
-                const new_carry_val = (regs.a >> 7) & 1;
+                const new_carry_val = (regs.a >> addr.BIT_7_SHIFT) & 1;
                 regs.a = (regs.a << 1) | old_carry;
                 var flags = regs.getFlags();
                 flags.setZero(false);
@@ -1040,7 +1040,7 @@ pub const Cpu = struct {
             .rra => {
                 const old_carry = regs.getFlags().carry;
                 const new_carry_val = regs.a & 1;
-                regs.a = (regs.a >> 1) | (@as(u8, old_carry) << 7);
+                regs.a = (regs.a >> 1) | (@as(u8, old_carry) << addr.BIT_7_SHIFT);
                 var flags = regs.getFlags();
                 flags.setZero(false);
                 flags.setSub(false);
@@ -1162,17 +1162,17 @@ pub const Cpu = struct {
                         break :blk (val << 1) | regs.getFlags().carry;
                     },
                     3 => blk: { // RR
-                        break :blk (val >> 1) | (@as(u8, regs.getFlags().carry) << 7);
+                        break :blk (val >> 1) | (@as(u8, regs.getFlags().carry) << addr.BIT_7_SHIFT);
                     },
                     4 => blk: { // SLA
                         break :blk val << 1;
                     },
                     5 => blk: { // SRA
-                        const msb = val & 0x80;
+                        const msb = val & addr.BIT_7_MASK;
                         break :blk (val >> 1) | msb;
                     },
                     6 => blk: { // SWAP
-                        break :blk (val << 4) | (val >> 4);
+                        break :blk (val << addr.NIBBLE_SHIFT) | (val >> addr.NIBBLE_SHIFT);
                     },
                     7 => blk: { // SRL
                         break :blk val >> 1;

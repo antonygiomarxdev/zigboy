@@ -1,6 +1,6 @@
 const std = @import("std");
 const addr = @import("addr.zig");
-const RomOnly = @import("cartridge/mod.zig").RomOnly;
+const Cartridge = @import("cartridge/mod.zig").Cartridge;
 
 // ── MMIO Packed Struct ───────────────────────────────────────────────
 
@@ -13,14 +13,14 @@ pub const MMIO = extern struct {
     TIMA: u8,                    // 0xFF05
     TMA: u8,                     // 0xFF06
     TAC: u8,                     // 0xFF07
-    _pad_08_0E: [7]u8,           // 0xFF08-0xFF0E
+    _pad_08_0E: [addr.MMIO_PAD_08_0E_SIZE]u8, // 0xFF08-0xFF0E
     IF: u8,                      // 0xFF0F
-    _pad_10_3F: [48]u8,          // 0xFF10-0xFF3F (APU region)
-    _pad_40_4F: [16]u8,          // 0xFF40-0xFF4F (PPU region)
+    _pad_10_3F: [addr.MMIO_APU_SIZE]u8, // 0xFF10-0xFF3F (APU region)
+    _pad_40_4F: [addr.MMIO_PPU_SIZE]u8, // 0xFF40-0xFF4F (PPU region)
     BANK: u8,                    // 0xFF50
-    _pad_51_7E: [46]u8,          // 0xFF51-0xFF7E
-    _pad_7F: u8,                 // 0xFF7F
-    _pad_80_FE: [127]u8,         // 0xFF80-0xFFFE (HRAM — handled separately)
+    _pad_51_7E: [addr.MMIO_PAD_51_7E_SIZE]u8, // 0xFF51-0xFF7E
+    _pad_7F: [addr.MMIO_PAD_7F_SIZE]u8, // 0xFF7F
+    _pad_80_FE: [addr.HRAM_SIZE]u8, // 0xFF80-0xFFFE (HRAM — handled separately)
     IE: u8,                      // 0xFFFF
 };
 
@@ -46,7 +46,7 @@ pub const Bus = struct {
     vram_stub: [addr.VRAM_SIZE]u8,
     oam_stub: [addr.OAM_SIZE]u8,
     mmio: MMIO,
-    cart: *RomOnly,
+    cart: *Cartridge,
     serial_output: [256]u8,
     serial_index: usize,
     t_cycles: u64,
@@ -55,7 +55,7 @@ pub const Bus = struct {
         return self.t_cycles;
     }
 
-    pub fn init(cart: *RomOnly) Bus {
+    pub fn init(cart: *Cartridge) Bus {
         var bus = Bus{
             .wram = undefined,
             .hram = undefined,
@@ -67,10 +67,10 @@ pub const Bus = struct {
             .serial_index = 0,
             .t_cycles = 0,
         };
-        @memset(&bus.wram, 0xFF);
-        @memset(&bus.hram, 0xFF);
-        @memset(&bus.vram_stub, 0xFF);
-        @memset(&bus.oam_stub, 0xFF);
+        @memset(&bus.wram, addr.RAM_INIT_VALUE);
+        @memset(&bus.hram, addr.RAM_INIT_VALUE);
+        @memset(&bus.vram_stub, addr.RAM_INIT_VALUE);
+        @memset(&bus.oam_stub, addr.RAM_INIT_VALUE);
         @memset(&bus.serial_output, 0);
         bus.mmio = .{
             .JOYP = addr.JOYP_INIT,
@@ -81,14 +81,14 @@ pub const Bus = struct {
             .TIMA = 0x00,
             .TMA = 0x00,
             .TAC = 0x00,
-            ._pad_08_0E = .{0} ** 7,
+            ._pad_08_0E = .{0} ** addr.MMIO_PAD_08_0E_SIZE,
             .IF = addr.IF_INIT,
-            ._pad_10_3F = .{0} ** 48,
-            ._pad_40_4F = .{0} ** 16,
+            ._pad_10_3F = .{0} ** addr.MMIO_APU_SIZE,
+            ._pad_40_4F = .{0} ** addr.MMIO_PPU_SIZE,
             .BANK = 0x00,
-            ._pad_51_7E = .{0} ** 46,
-            ._pad_7F = 0x00,
-            ._pad_80_FE = .{0} ** 127,
+            ._pad_51_7E = .{0} ** addr.MMIO_PAD_51_7E_SIZE,
+            ._pad_7F = .{0} ** addr.MMIO_PAD_7F_SIZE,
+            ._pad_80_FE = .{0} ** addr.HRAM_SIZE,
             .IE = 0x00,
         };
         return bus;
@@ -99,33 +99,33 @@ pub const Bus = struct {
         return switch (address >> 12) {
             0x0...0x7 => self.cart.readRom(address),
             0x8...0x9 => self.vram_stub[address - addr.VRAM_BASE],
-            0xA...0xB => 0xFF,
+            0xA...0xB => self.cart.readRam(address),
             0xC...0xD => self.wram[address - addr.WRAM_BASE],
             0xE => self.wram[address - addr.ECHO_BASE],
             0xF => switch (address) {
                 addr.OAM_BASE...addr.OAM_END - 1 => self.oam_stub[address - addr.OAM_BASE],
-                addr.UNUSABLE_BASE...addr.UNUSABLE_END - 1 => 0xFF,
-                addr.IO_BASE...addr.IO_END - 1 => self.mmioRead(@intCast(address & 0xFF)),
+                addr.UNUSABLE_BASE...addr.UNUSABLE_END - 1 => addr.UNMAPPED_READ,
+                addr.IO_BASE...addr.IO_END - 1 => self.mmioRead(@intCast(address & addr.LOW_BYTE_MASK)),
                 addr.HRAM_BASE...addr.HRAM_END - 1 => self.hram[address - addr.HRAM_BASE],
                 addr.IE_ADDR => self.mmio.IE,
-                else => 0xFF,
+                else => addr.UNMAPPED_READ,
             },
-            else => 0xFF,
+            else => addr.UNMAPPED_READ,
         };
     }
 
     pub fn write8(self: *Bus, address: u16, val: u8) void {
         self.t_cycles += addr.T_CYCLES_PER_M_CYCLE;
         switch (address >> 12) {
-            0x0...0x7 => {},
+            0x0...0x7 => self.cart.writeRom(address, val),
             0x8...0x9 => {},
-            0xA...0xB => {},
+            0xA...0xB => self.cart.writeRam(address, val),
             0xC...0xD => self.wram[address - addr.WRAM_BASE] = val,
             0xE => self.wram[address - addr.ECHO_BASE] = val,
             0xF => switch (address) {
                 addr.OAM_BASE...addr.OAM_END - 1 => {},
                 addr.UNUSABLE_BASE...addr.UNUSABLE_END - 1 => {},
-                addr.IO_BASE...addr.IO_END - 1 => self.mmioWrite(@intCast(address & 0xFF), val),
+                addr.IO_BASE...addr.IO_END - 1 => self.mmioWrite(@intCast(address & addr.LOW_BYTE_MASK), val),
                 addr.HRAM_BASE...addr.HRAM_END - 1 => self.hram[address - addr.HRAM_BASE] = val,
                 addr.IE_ADDR => self.mmio.IE = val,
                 else => {},
@@ -165,10 +165,10 @@ pub const Bus = struct {
         return self.serial_index;
     }
 
-    pub fn getFrameBuffer(self: *Bus) *const [160 * 144]u8 {
+    pub fn getFrameBuffer(self: *Bus) *const [addr.FRAMEBUFFER_LEN]u8 {
         // Phase 1 stub — returns zeroed buffer
         // In Phase 3 this will point to the PPU framebuffer
-        const buf = @as(*const [23040]u8, @ptrCast(&self.oam_stub));
+        const buf = @as(*const [addr.FRAMEBUFFER_LEN]u8, @ptrCast(&self.oam_stub));
         return buf;
     }
 
