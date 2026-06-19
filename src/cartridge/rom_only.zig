@@ -19,7 +19,7 @@ pub const RomOnly = struct {
             return error.RomTooLarge;
         }
 
-        var title: [addr.CART_TITLE_LEN]u8 = .{0} ** 16;
+        var title: [addr.CART_TITLE_LEN]u8 = .{0} ** addr.CART_TITLE_LEN;
         const title_len = @min(@as(usize, addr.CART_TITLE_LEN), rom_bytes.len - addr.CART_TITLE);
         @memcpy(title[0..title_len], rom_bytes[addr.CART_TITLE..][0..title_len]);
 
@@ -34,7 +34,7 @@ pub const RomOnly = struct {
         }
         const checksum_ok = (checksum_sum +% checksum) == 0;
         if (!checksum_ok) {
-            std.log.warn("header checksum mismatch: sum(0x134-0x14D) = 0x{X:02}, expected 0x00", .{checksum_sum +% checksum});
+            std.log.warn("header checksum mismatch: sum(0x{X:0>4}-0x{X:0>4}) = 0x{X:02}, expected 0x00", .{ addr.CART_CHECKSUM_BEGIN, addr.CART_CHECKSUM_END, checksum_sum +% checksum });
         }
 
         const rom = try allocator.alloc(u8, rom_bytes.len);
@@ -55,11 +55,38 @@ pub const RomOnly = struct {
         allocator.free(self.rom);
     }
 
-    pub fn readRom(self: *RomOnly, address: u16) u8 {
-        const index = @as(usize, address);
-        if (index < self.rom.len) {
-            return self.rom[index];
-        }
-        return 0xFF;
+pub fn getRamSlice(self: *RomOnly) []u8 {
+    _ = self;
+    return &.{};
+}
+
+pub fn hasBattery(_: *const RomOnly) bool {
+    return false;
+}
+
+pub fn readRom(self: *RomOnly, address: u16) u8 {
+    const index = @as(usize, address);
+    if (index < self.rom.len) {
+        return self.rom[index];
     }
+    return addr.UNMAPPED_READ;
+}
+
+pub fn readRam(self: *RomOnly, address: u16) u8 {
+    _ = self;
+    _ = address;
+    return addr.UNMAPPED_READ;
+}
+
+pub fn writeRam(self: *RomOnly, address: u16, val: u8) void {
+    _ = self;
+    _ = address;
+    _ = val;
+}
+
+pub fn writeRom(self: *RomOnly, address: u16, val: u8) void {
+    _ = self;
+    _ = address;
+    _ = val;
+}
 };
